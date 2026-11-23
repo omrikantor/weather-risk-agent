@@ -12,7 +12,8 @@ A US logistics company wants to know which of its distribution hubs are most exp
 ## What I built
 
 - **A chat agent** that answers the assignment's questions and follow-ups. The language model (OpenAI) only chooses tools and explains results; nine deterministic Python tools compute every number. Code then checks that each number in the answer matches a tool result before the answer is shown.
-- **A web app**: chat with voice input and read-aloud, a ranking of 47 hubs with 90% ranges, a detail panel per hub, a seasonal outlook, and the live warnings below.
+- **A hub network of 47 US cities** chosen to cover every US region and every hazard type. For a place that is not a hub, the agent compares its 3 nearest hubs, weighing hazard-profile similarity (FEMA county data, 80%) and distance (20%), offers the best one as a stand-in and asks before analyzing it. Places farther from the network than its widest gap (Alaska, Hawaii, Puerto Rico) get no stand-in.
+- **A web app**: chat with voice input and read-aloud, a ranking of the 47 hubs with 90% ranges, a detail panel per hub, a seasonal outlook, and the live warnings below.
 - **Live alerts (bonus)**: every 15 minutes the app checks active National Weather Service warnings at each hub and posts new or ended warnings to a webhook; they also appear in the app and the chat.
 
 ## How risk is measured
