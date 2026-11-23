@@ -203,7 +203,7 @@ $("f-region").addEventListener("change", (e) => { state.region = e.target.value;
 /* ---------------- hub drawer ---------------- */
 async function openHub(hubId) {
   $("drawer").classList.add("open"); $("scrim").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false");
-  document.body.classList.remove("show-board");
+  document.body.classList.remove("show-board"); syncBoardButton();
   $("drawer-title").replaceChildren(el("div", { class: "skeleton", style: "height:24px;width:60%" }));
   $("drawer-body").replaceChildren(el("div", { class: "skeleton", style: "height:300px" }));
   try { renderHub(await api(`/api/hubs/${encodeURIComponent(hubId)}/breakdown`)); }
@@ -325,7 +325,7 @@ $("method-btn").addEventListener("click", async () => {
 document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest(".modal").classList.remove("open")));
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  closeDrawer(); $("method-modal").classList.remove("open"); document.body.classList.remove("show-board");
+  closeDrawer(); $("method-modal").classList.remove("open"); document.body.classList.remove("show-board"); syncBoardButton();
 });
 
 /* ---------------- chat ---------------- */
@@ -499,7 +499,29 @@ function toggleOutlook(collapse) {
 $("outlook-toggle").addEventListener("click", () => toggleOutlook());
 $("m-prev").addEventListener("click", () => { state.month = ((state.month + 10) % 12) + 1; toggleOutlook(false); loadOutlook(); });
 $("m-next").addEventListener("click", () => { state.month = (state.month % 12) + 1; toggleOutlook(false); loadOutlook(); });
-$("board-toggle").addEventListener("click", () => document.body.classList.toggle("show-board"));
+/* Leaderboard button: on wide screens it hides or shows the leaderboard column (open by default, choice remembered);
+   on narrow screens it opens the leaderboard as a full-screen panel. */
+const wideScreen = window.matchMedia("(min-width: 1101px)");
+function syncBoardButton() {
+  const visible = wideScreen.matches ? !document.body.classList.contains("hide-board") : document.body.classList.contains("show-board");
+  const b = $("board-toggle");
+  b.setAttribute("aria-pressed", visible ? "true" : "false");
+  b.setAttribute("aria-label", visible ? "Hide leaderboard" : "Show leaderboard");
+  b.title = visible ? "Hide leaderboard" : "Show leaderboard";
+}
+document.body.classList.toggle("hide-board", storage.get("wra_board") === "hidden");
+$("board-toggle").addEventListener("click", () => {
+  if (wideScreen.matches) {
+    const hide = !document.body.classList.contains("hide-board");
+    document.body.classList.toggle("hide-board", hide);
+    storage.set("wra_board", hide ? "hidden" : "shown");
+  } else {
+    document.body.classList.toggle("show-board");
+  }
+  syncBoardButton();
+});
+wideScreen.addEventListener("change", () => { document.body.classList.remove("show-board"); syncBoardButton(); });
+syncBoardButton();
 
 /* ---------------- voice (browser Web Speech API, no server involvement) ----------------
    Speech to text: SpeechRecognition (Chrome, Edge, Safari). The transcript goes into the input box and is NOT sent
