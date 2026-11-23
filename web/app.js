@@ -29,6 +29,7 @@ const ICON = {
 const SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 const SPEAKER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>';
+const WARN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
 const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
 const QTYPE = { ranking: "Ranking", comparison: "Comparison", statistic: "Statistic", explanation: "Explanation",
   methodology: "Methodology", stand_in: "Stand-in hub", clarification: "Clarification", out_of_scope: "Out of scope" };
@@ -51,7 +52,9 @@ if (urlDev !== null) storage.set("wra_dev", urlDev === "0" ? "0" : "1");
 /* All UI state in one place: access code, current conversation, view options and leaderboard filters. */
 const state = {
   code: storage.get("wra_code") || "", sessionId: null, busy: false, dev: storage.get("wra_dev") === "1",
-  speak: storage.get("wra_speak") === "1", month: new Date().getMonth() + 1, measure: "severe_disruption_days", hazard: "all", region: "",
+  speak: storage.get("wra_speak") === "1",
+  live: null, liveByHub: {},   // last /api/alerts answer, and its active warnings grouped by hub id
+  month: new Date().getMonth() + 1, measure: "severe_disruption_days", hazard: "all", region: "",
 };
 
 /* ---------------- helpers ---------------- */
@@ -206,7 +209,7 @@ async function loadBoard() {
       const [lo, hi] = x.range_90pct;
       return el("button", { class: `lb-row${x.no_exposure_in_data ? " zero" : ""}`, onclick: () => openHub(x.hub_id) },
         el("span", { class: "lb-rank" }, x.rank),
-        el("span", { class: "lb-name" }, x.name, el("small", {}, `${x.state} \u00b7 ${x.region}`)),
+        el("span", { class: "lb-name" }, x.name, liveMark(x.hub_id), el("small", {}, `${x.state} \u00b7 ${x.region}`)),
         el("span", { class: "lb-bar", "aria-hidden": "true" }, el("span", { class: "track" }),
           el("span", { class: "range", style: `left:${(lo / max) * 100}%;width:${Math.max(((hi - lo) / max) * 100, 1)}%` }),
           el("span", { class: "point", style: `left:${(x.value_days_per_year / max) * 100}%` })),
@@ -272,7 +275,14 @@ function renderHub(d) {
           "Notable storms within 150 km: " + hz.evidence.notable_storms.map((s) => s.storm).join(", ")) : null);
   });
 
+  // Live warnings at this hub, shown first and labeled as separate from the historical score.
+  const live = liveWarningsFor(d.hub_id);
   fill($("drawer-body"),
+    live.length ? el("div", { class: "warnbox live-box", role: "status" },
+      el("strong", {}, "Active now (National Weather Service): "),
+      live.map((w) => `${w.event}${w.ends ? ` until ${localTime(w.ends)}` : ""}`).join("; "),
+      el("div", { class: "faint", style: "font-size:12px;margin-top:4px" },
+        "Live weather, not part of the historical risk score below.")) : null,
     el("div", { class: "kpis" },
       el("div", { class: "kpi" }, el("div", { class: "v" }, `#${d.rank}`), el("div", { class: "l" }, `of ${d.of} hubs`)),
       el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(total)), el("div", { class: "l" }, `disaster-level days / yr (likely ${fmt(d.severe_days_range_90pct[0])} to ${fmt(d.severe_days_range_90pct[1])})`)),
@@ -353,7 +363,7 @@ $("method-btn").addEventListener("click", async () => {
 document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest(".modal").classList.remove("open")));
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  closeDrawer(); $("method-modal").classList.remove("open"); document.body.classList.remove("show-board"); syncBoardButton();
+  closeDrawer(); $("method-modal").classList.remove("open"); $("live-modal").classList.remove("open"); document.body.classList.remove("show-board"); syncBoardButton();
 });
 
 /* ---------------- chat ---------------- */
@@ -718,7 +728,8 @@ const voice = (() => {
 
 
 /* ---------------- boot ---------------- */
-function loadAll() { loadOutlook(); loadBoard(); }
+/* Live warnings load before the leaderboard so its rows can show the warning marker. loadLive never throws. */
+function loadAll() { loadOutlook(); loadLive().then(loadBoard); }
 (async function boot() {
   renderSamples();
   updateNewChat();
@@ -732,7 +743,70 @@ function loadAll() { loadOutlook(); loadBoard(); }
    sleeping server loses its conversations. While this page is open it checks /health every 10 minutes, which
    keeps the server awake and the status dot current. /health never calls the AI model, so this costs nothing. */
 const KEEP_ALIVE_MS = 10 * 60 * 1000;
-setInterval(loadHealth, KEEP_ALIVE_MS);
+setInterval(() => {
+  loadHealth();
+  if (state.live) loadLive().then(loadBoard);   // refresh live warnings once the page has loaded them before
+}, KEEP_ALIVE_MS);
+
+/* ---------------- live warnings ---------------- */
+/* Live NWS warnings come from GET /api/alerts, filled by the warning monitor every 15 minutes
+   (app/alerts/monitor.py). They are shown separately from the historical risk scores, which do not change
+   with today's weather. */
+
+/* Format an NWS end time in the hub's own time zone, as NWS states it:
+   "2026-11-26T16:00:00-08:00" becomes "Nov 26, 16:00 local time". */
+function localTime(iso) {
+  const [day, time] = String(iso).split("T");
+  const [, m, d] = day.split("-");
+  return `${MONTHS[+m - 1].slice(0, 3)} ${+d}, ${(time || "").slice(0, 5)} local time`;
+}
+function liveWarningsFor(hubId) { return state.liveByHub[hubId] || []; }
+
+/* Small warning icon after a hub name when the hub is under a warning now (null otherwise). */
+function liveMark(hubId) {
+  const w = liveWarningsFor(hubId);
+  return w.length ? el("span", { class: "live-mark", title: `Active now: ${w.map((x) => x.event).join(", ")}`,
+    html: WARN_ICON }) : null;
+}
+
+/* Fetch the live warnings and update the header button. Errors are swallowed: the rest of the page works
+   without live data, and the button simply stays hidden. */
+async function loadLive() {
+  try {
+    const r = await api("/api/alerts?limit=20");
+    state.live = r;
+    state.liveByHub = {};
+    for (const w of r.active_warnings) (state.liveByHub[w.hub_id] ||= []).push(w);
+    const hubs = Object.keys(state.liveByHub).length;
+    const b = $("live-btn");
+    b.hidden = false;
+    b.classList.toggle("active", hubs > 0);
+    $("live-count").hidden = hubs === 0;
+    $("live-count").textContent = hubs;
+    $("live-text").textContent = !r.last_check ? "Live warnings: first check pending"
+      : hubs ? `${hubs === 1 ? "hub" : "hubs"} under a warning now` : "No live warnings";
+  } catch { /* leave the button as it was */ }
+}
+
+/* The live warnings window: one row per active warning (click opens the hub), the last check time and a note
+   on what this data is. */
+function openLive() {
+  const r = state.live;
+  if (!r) return;
+  const rows = r.active_warnings.map((w) => el("button", { class: "live-row", onclick: () => {
+    $("live-modal").classList.remove("open"); openHub(w.hub_id); } },
+    el("span", { class: "live-hub" }, w.hub_name.replace(/ \(.*\)/, ""), el("small", {}, w.state)),
+    hzChip(w.hazard, w.event),
+    el("span", { class: "faint num" }, w.ends ? `until ${localTime(w.ends)}` : "")));
+  const last = r.last_check ? `Last checked ${r.last_check.checked_at.slice(0, 16).replace("T", " ")} UTC, `
+    + `${r.last_check.hubs_checked} hubs answered.` : "The first check has not run yet.";
+  fill($("live-body"),
+    rows.length ? el("div", { class: "live-list" }, ...rows)
+      : el("p", { class: "muted" }, "No hub is under an active weather warning right now."),
+    el("p", { class: "faint", style: "font-size:12.5px;margin:14px 0 0" }, `${last} ${r.note}`));
+  $("live-modal").classList.add("open");
+}
+$("live-btn").addEventListener("click", openLive);
 
 /* localStorage wrapper that never throws (private browsing can block storage). */
 function makeStorage() {

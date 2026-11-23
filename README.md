@@ -7,7 +7,7 @@ What you can do in the web app:
 - Ask questions in a chat, for example "Which Midwest hubs are most exposed to winter disruption?", "Compare Miami and Houston for hurricanes and flooding", "What percentage of days in Denver last year had snowfall?" or "Why is the Dallas hub high?".
 - See this month's seasonal outlook (which hubs historically face the most disruption in the current month).
 - Browse the leaderboard of all 47 hubs by hazard and region, and open any hub to see the evidence behind its score.
-- Get live warning alerts: every 15 minutes the app checks which hubs are under an active National Weather Service warning and can post each new or ended warning to Slack (see Deploy).
+- See live warnings: every 15 minutes the app checks which hubs are under an active National Weather Service warning. The header shows how many, affected hubs are marked in the leaderboard and hub panel, and each new or ended warning can be posted to Slack (see Deploy).
 - Use voice: click the microphone to speak a question (Chrome, Edge and Safari), check the text and press Enter. Turn on "Read aloud" to hear answers, or click the speaker icon on any answer.
 
 **Live demo:** https://weather-risk-agent-gz90.onrender.com (the access code is provided with the submission). The free hosting plan sleeps when idle, so the first visit can take about a minute.

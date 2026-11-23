@@ -246,6 +246,7 @@ The leaderboard, outlook and hub panel use the same tool functions as the agent,
 - Every 15 minutes a GitHub Actions job calls `POST /api/admin/alerts/check`. The schedule lives outside the server because the free plan puts the server to sleep; the call wakes it.
 - The check asks the NWS alerts API which alerts are active at each hub's point (47 requests in parallel, about 18 seconds) and keeps only real warnings (status Actual, significance W) of the types the scoring uses. Watches, advisories and test messages are ignored.
 - Each warning is identified by its VTEC event id (office, type and event number), which stays the same through updates and extensions. Comparing with the previous check gives the warnings that were issued or ended; each becomes a row in `hub_alerts` and all of them go out in one webhook message (Slack format), for example "Oakland, CA: Coastal Flood Warning issued, until 2026-11-26 16:00 local time".
+- In the web app, a "Live warnings" button in the header shows how many hubs are under a warning now and opens a list (hub, warning, end time in the hub's local time). Affected hubs get a warning icon in the leaderboard and a box at the top of their hub panel, labeled as live weather that is not part of the historical risk score. The page refreshes this every 10 minutes while open.
 - Safeguards: a failed request leaves that hub unchanged (an API error never reads as "warning ended"); the first check on a fresh database is a baseline that reports warnings as "active when monitoring started" instead of new; only one check runs at a time; delivery errors are recorded with the error type only, never the webhook URL, because the scheduler logs of a public repository are public.
 - Limitations: alert history is stored in SQLite on the server's temporary disk and is lost on redeploy (a production version would use a persistent database); GitHub may start scheduled runs a few minutes late.
 
@@ -285,7 +286,7 @@ Results: before the warning-duration cap, every case run twice passed (**40 of 4
 ## 11. What we chose not to build, and how it would work
 
 - **Alerts on historical score changes**: a job that refreshes the warning archive, re-scores and alerts when a hub's tier changes. Built instead: live warning alerts (section 8), because the historical scores barely change between rebuilds. A tier-change alert would fit naturally into the yearly data refresh.
-- **Live warnings inside the chat and the leaderboard**: the monitor's data could be a tool ("which hubs are under a warning now?") and a badge on each hub. Left out to keep the agent focused on historical risk.
+- **Live warnings inside the chat**: the monitor's data could become an agent tool ("which hubs are under a warning now?"). Left out to keep the agent focused on historical risk; the web app already shows live warnings next to the ranking.
 - **MCP server**: exposing the same tools to any MCP-compatible assistant (for example Claude Desktop). The tool registry already has everything needed; it would be a thin wrapper.
 - **Assessment of any US address on demand**: the same warning-day method applied to a location's own NWS zone, using live API calls instead of the pre-built database.
 - **Broader place lookup**: Census county subdivisions, counties and ZIP codes.

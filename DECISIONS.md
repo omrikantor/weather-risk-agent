@@ -135,7 +135,7 @@ A public URL with a paid model needs limits. We chose three simple ones: an acce
 ## D14. What we chose not to build
 
 - **MCP server:** useful but not required; the tool registry would make it a thin wrapper.
-- **Live warnings in the chat and leaderboard:** the monitor's data could become an agent tool and a hub badge; left out to keep the agent focused on historical risk.
+- **Live warnings in the chat:** the monitor's data could become an agent tool; left out to keep the agent focused on historical risk. The web app shows live warnings in the header, the leaderboard and the hub panel. A first version showed them only through the API and webhook; testing the deployed app showed that users expect to see them in the app itself, so the display was added.
 - **Client cost data, live address assessment, Postgres, real authentication:** right for production, not for this assignment.
 
 These are described in more detail in section 11 of [DESIGN.md](DESIGN.md).
