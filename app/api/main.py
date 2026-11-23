@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.agent.agent import Agent
+from app.alerts import monitor
 from app.agent.llm_client import LLMUnavailableError
 from app.api.guards import DailyBudget, RateLimiter, code_matches
 from app.config import REPO_ROOT, get_settings
@@ -217,6 +218,30 @@ def set_budget(body: BudgetRequest, request: Request) -> dict:
     request.app.state.budget.cap_usd = body.daily_budget_usd
     log.info("daily budget changed to $%.2f", body.daily_budget_usd)
     return request.app.state.budget.status()
+
+
+@app.post("/api/admin/alerts/check", dependencies=[Depends(require_admin)], tags=["alerts"])
+def check_alerts() -> dict:
+    """Run one live warning check for every hub (called by the scheduler every 15 minutes).
+
+    Records warnings that started or ended since the last check and posts them to ALERT_WEBHOOK_URL if set.
+    Needs the admin token, because each call makes 47 requests to the NWS API and may send a webhook message.
+    """
+    conn = get_connection()
+    try:
+        return monitor.run_check(conn, webhook_url=get_settings().alert_webhook_url or None)
+    finally:
+        conn.close()
+
+
+@app.get("/api/alerts", dependencies=[Depends(require_access)], tags=["alerts"])
+def alerts(limit: int = Query(50, ge=1, le=500)) -> dict:
+    """Warnings active at hubs now, recent alerts (issued and ended) and the result of the last check."""
+    conn = get_connection()
+    try:
+        return monitor.recent(conn, limit)
+    finally:
+        conn.close()
 
 
 @app.get("/health", tags=["admin"])

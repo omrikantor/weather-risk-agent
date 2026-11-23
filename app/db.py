@@ -213,16 +213,43 @@ CREATE TABLE IF NOT EXISTS risk_scores (
 );
 CREATE INDEX IF NOT EXISTS idx_scores_hub ON risk_scores(hub_id, computed_at);
 
--- Reserved for score-change alerts, which are designed but not built (DESIGN.md section 11). Empty.
-CREATE TABLE IF NOT EXISTS alerts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+-- Live warning monitor (app/alerts/monitor.py): the NWS warnings active at each hub at the last check.
+-- This is the monitor's memory between checks; comparing it with a new check gives issued and ended warnings.
+CREATE TABLE IF NOT EXISTS active_warnings (
     hub_id      TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    kind        TEXT NOT NULL,
-    old_value   REAL,
-    new_value   REAL,
-    message     TEXT NOT NULL,
-    delivered   INTEGER NOT NULL DEFAULT 0
+    event_key   TEXT NOT NULL,             -- stable NWS event id: office.type.W.number, e.g. KJAX.CF.W.0004
+    hazard      TEXT NOT NULL,             -- our hazard group (winter, flood, convective, hurricane, heat)
+    event       TEXT NOT NULL,             -- NWS name, e.g. "Coastal Flood Warning"
+    headline    TEXT,
+    ends        TEXT,                      -- when NWS expects the warning to end (ISO time)
+    first_seen  TEXT NOT NULL,             -- first check that saw it (UTC ISO)
+    PRIMARY KEY (hub_id, event_key)
+);
+
+-- Alert history: one row each time a warning starts or ends at a hub, with webhook delivery status.
+CREATE TABLE IF NOT EXISTS hub_alerts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,             -- time of the check (UTC ISO)
+    hub_id      TEXT NOT NULL,
+    kind        TEXT NOT NULL,             -- issued | ended | active_at_start (baseline of a fresh start)
+    event_key   TEXT NOT NULL,
+    hazard      TEXT NOT NULL,
+    event       TEXT NOT NULL,
+    headline    TEXT,
+    ends        TEXT,
+    delivered   INTEGER NOT NULL DEFAULT 0, -- 1 once posted to the webhook
+    delivery_error TEXT                    -- why delivery failed, if it did
+);
+CREATE INDEX IF NOT EXISTS idx_hub_alerts_time ON hub_alerts(created_at);
+
+-- One row per monitor check. An empty table means the monitor has never run on this database, so the next
+-- check is a baseline (warnings already active are not announced as new).
+CREATE TABLE IF NOT EXISTS monitor_runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at  TEXT NOT NULL,             -- UTC ISO
+    hubs_checked INTEGER NOT NULL,
+    hubs_failed TEXT NOT NULL,             -- JSON list of hub ids whose request failed
+    summary_json TEXT NOT NULL             -- counts and webhook status returned by the check
 );
 
 -- What was downloaded and when; /health reports the latest fetch per source as data freshness.

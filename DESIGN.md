@@ -30,10 +30,14 @@ flowchart LR
         API -->|leaderboard, outlook, hub details| TOOLS
         TOOLS --> DB
         AGENT --> VAL[Validator<br/>number tracing]
+        CRON[GitHub Actions<br/>every 15 min] -->|alert check| MON[Warning monitor<br/>app/alerts]
+        MON <-->|active warnings| NWS[NWS alerts API]
+        MON -->|issued / ended| HOOK[Webhook<br/>Slack or test URL]
+        MON --> DB
     end
 ```
 
-**Two halves.** The left half runs once (or whenever the data is refreshed): it downloads public data, stores it in SQLite and computes the scores. The right half is the running web service, which only reads the database. This split keeps answers fast and reproducible, and the live demo does not depend on any external data API being available.
+**Two halves.** The left half runs once (or whenever the data is refreshed): it downloads public data, stores it in SQLite and computes the scores. The right half is the running web service, which reads the scores from the database. This split keeps answers fast and reproducible, and the scores and chat do not depend on any external data API being available. The one live part is the warning monitor (section 8), which writes only to its own alert tables.
 
 **Components and how they talk to each other**
 
@@ -91,6 +95,8 @@ weather-risk-agent/
       sessions.py      conversation memory
       agent.py         the agent loop
       cli.py           command-line chat
+    alerts/
+      monitor.py       live warning monitor: checks active NWS warnings per hub, records and sends alerts
     api/
       main.py          FastAPI app
       guards.py        access code, rate limit, daily budget
@@ -101,6 +107,8 @@ weather-risk-agent/
   evals/               cases.yaml, checks.py, run_evals.py, results/
   tests/               unit and integration tests (no OpenAI calls)
   docs/ai-session/     the exported AI session
+  .github/workflows/   alerts.yml: runs the warning check every 15 minutes
+  Dockerfile, render.yaml   container image and Render deployment
 ```
 
 ## 4. Data
@@ -225,11 +233,21 @@ Examples: Tampa to Orlando, Charleston SC to Jacksonville (coastal, rather than 
 | GET | `/api/hubs`, `/api/hubs/{id}/breakdown` | Hub list and hub details (no language model) |
 | GET | `/api/methodology` | Definitions, severity shares, sources and limitations |
 | POST | `/api/admin/budget` | Raise or lower the daily spend cap while running (admin token) |
+| POST | `/api/admin/alerts/check` | Run one live warning check for all hubs (admin token; called by the scheduler) |
+| GET | `/api/alerts` | Warnings active at hubs now, recent alerts and the last check |
 | GET | `/health` | Database status, data freshness, model, remaining budget |
 
 The leaderboard, outlook and hub panel use the same tool functions as the agent, so the numbers on screen and in answers always agree.
 
 **Protection for a public URL**: an access code on every `/api/*` call, 10 chat messages per minute per IP address, and a daily OpenAI spend cap (3 USD by default, adjustable at runtime) after which chat answers with a clear message while the data views keep working.
+
+**Live warning alerts** (the assignment's bonus, `app/alerts/monitor.py`). The risk scores describe 20 years of history and change only when the data is rebuilt, so an alert on "score changed" would almost never fire. What does change day to day is whether a hub is under an active warning right now, so the monitor alerts on that:
+
+- Every 15 minutes a GitHub Actions job calls `POST /api/admin/alerts/check`. The schedule lives outside the server because the free plan puts the server to sleep; the call wakes it.
+- The check asks the NWS alerts API which alerts are active at each hub's point (47 requests in parallel, about 18 seconds) and keeps only real warnings (status Actual, significance W) of the types the scoring uses. Watches, advisories and test messages are ignored.
+- Each warning is identified by its VTEC event id (office, type and event number), which stays the same through updates and extensions. Comparing with the previous check gives the warnings that were issued or ended; each becomes a row in `hub_alerts` and all of them go out in one webhook message (Slack format), for example "Oakland, CA: Coastal Flood Warning issued, until 2026-11-26 16:00 local time".
+- Safeguards: a failed request leaves that hub unchanged (an API error never reads as "warning ended"); the first check on a fresh database is a baseline that reports warnings as "active when monitoring started" instead of new; only one check runs at a time; delivery errors are recorded with the error type only, never the webhook URL, because the scheduler logs of a public repository are public.
+- Limitations: alert history is stored in SQLite on the server's temporary disk and is lost on redeploy (a production version would use a persistent database); GitHub may start scheduled runs a few minutes late.
 
 **Voice**: voice runs entirely in the browser through the Web Speech API, so the server, the agent and the cost are unchanged.
 
@@ -243,7 +261,7 @@ The leaderboard, outlook and hub panel use the same tool functions as the agent,
 
 ## 9. Testing and evaluation
 
-**Unit and integration tests** (`tests/`, 128 tests, no OpenAI calls): scoring functions on synthetic data, the tools and the place lookup on the real database, the validator and text cleanup, the agent loop with a scripted fake model, and the API including access control, rate limit, budget and outage handling.
+**Unit and integration tests** (`tests/`, 137 tests, no OpenAI calls): scoring functions on synthetic data, the tools and the place lookup on the real database, the live warning monitor with recorded responses, the validator and text cleanup, the agent loop with a scripted fake model, and the API including access control, rate limit, budget and outage handling.
 
 **Evaluation of the real model** (`evals/`, `python -m evals.run_evals`): 20 cases, some with several turns, covering rankings (including analyst weights), comparisons, statistics, explanations, timing and the seasonal outlook, methodology, stand-in hubs, nicknames, ambiguous and out-of-coverage places, a false premise, a follow-up and guardrails (an out-of-scope forecast question and a request to make up a number). Checks are deterministic: expected tool calls and arguments, expected figures and ranking order computed by calling the same tools directly (never hard-coded), required and forbidden phrases, question type and confirmation behavior, plus validation, completion and plain-text checks on every answer.
 
@@ -266,7 +284,8 @@ Results: before the warning-duration cap, every case run twice passed (**40 of 4
 
 ## 11. What we chose not to build, and how it would work
 
-- **Score-change alerts** (an assignment bonus): a scheduled job that refreshes recent warnings, re-scores, compares with the previous run and posts changes to a webhook. Our measures describe 20 years of history and barely change day to day, so a more useful version would alert on live NWS warnings for each hub. Not built to protect the submission timeline.
+- **Alerts on historical score changes**: a job that refreshes the warning archive, re-scores and alerts when a hub's tier changes. Built instead: live warning alerts (section 8), because the historical scores barely change between rebuilds. A tier-change alert would fit naturally into the yearly data refresh.
+- **Live warnings inside the chat and the leaderboard**: the monitor's data could be a tool ("which hubs are under a warning now?") and a badge on each hub. Left out to keep the agent focused on historical risk.
 - **MCP server**: exposing the same tools to any MCP-compatible assistant (for example Claude Desktop). The tool registry already has everything needed; it would be a thin wrapper.
 - **Assessment of any US address on demand**: the same warning-day method applied to a location's own NWS zone, using live API calls instead of the pre-built database.
 - **Broader place lookup**: Census county subdivisions, counties and ZIP codes.

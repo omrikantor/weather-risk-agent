@@ -1,0 +1,33 @@
+# Live warning alerts: every 15 minutes, ask the deployed app to check all hubs for NWS warnings that started
+# or ended (app/alerts/monitor.py). The scheduler lives here rather than inside the server because the free
+# hosting plan puts the server to sleep when idle; a request from here wakes it.
+#
+# Setup (GitHub repository: Settings, then Secrets and variables, then Actions):
+#   Secret   ADMIN_TOKEN = the ADMIN_TOKEN configured on Render
+#   Variable APP_URL     = the deployed URL, for example https://weather-risk-agent-gz90.onrender.com
+# Without both values the job does nothing.
+
+name: Hub alert check
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"     # every 15 minutes; GitHub may start scheduled runs a few minutes late
+  workflow_dispatch: {}         # adds a "Run workflow" button for a manual check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run one alert check
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "APP_URL or ADMIN_TOKEN is not configured; skipping."
+            exit 0
+          fi
+          # A sleeping server can take about a minute to wake up, hence the long timeout and the retries.
+          curl --fail-with-body --silent --show-error --max-time 180 --retry 2 --retry-delay 20 \
+            -X POST -H "X-Admin-Token: $ADMIN_TOKEN" "$APP_URL/api/admin/alerts/check"

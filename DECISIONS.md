@@ -110,10 +110,32 @@ We considered shortening answers to reduce latency. The user preferred complete 
 
 A public URL with a paid model needs limits. We chose three simple ones: an access code, a per-IP rate limit, and a daily spend cap (3 USD by default) that an admin can change while the service runs. The leaderboard and hub details keep working after the cap is reached because they do not use the model.
 
-## D13. What we chose not to build
+## D13. Alerts: live warnings instead of score changes
+
+**The assignment's bonus:** a scheduled or webhook alert when a hub's risk score changes.
+
+**Options considered**
+
+- A. Literal score-change alerts: refresh the data on a schedule, re-score, alert when a score or tier changes.
+- B. Live warning alerts: alert when an NWS warning starts or ends at a hub.
+- C. Not building alerts, and describing the design instead.
+
+**Choice: B.**
+
+**Why.** Our scores are 20-year averages; one more day of data almost never moves them, so option A would rarely fire and would mostly demonstrate plumbing. What changes day to day is whether a hub is under an active warning, which is the operational question ("which hubs are disrupted right now?") next to the historical one the scores answer. It also reuses the same warning types and the same "warning area must contain the hub" idea as the scoring, so the live and historical views agree on what counts. C was considered because of the submission deadline; B was built as an isolated module with its own tables and tests, so it cannot affect the scores or the chat.
+
+**Design choices inside B**
+
+- *Scheduler outside the server (GitHub Actions, every 15 minutes).* An in-process timer would stop whenever the free-plan server sleeps; an external call wakes it. The job does nothing until the repository has the app URL and admin token configured.
+- *Warnings identified by VTEC event id.* NWS reissues a warning many times (updates, extensions); using the message id would report each update as a new alert.
+- *Failed requests change nothing.* Otherwise an API outage would look like every warning ending at once, followed by a burst of "new" warnings.
+- *Baseline on a fresh database.* After a redeploy the alert state is empty; announcing every active warning as new would be wrong, so they are reported as active when monitoring started.
+- *No webhook URL in errors or logs.* The scheduler's logs are public for a public repository, and a Slack webhook URL works like a password.
+
+## D14. What we chose not to build
 
 - **MCP server:** useful but not required; the tool registry would make it a thin wrapper.
-- **Score-change alerts:** our measures describe 20 years and barely move day to day, so alerting on score changes would rarely fire. Alerting on live NWS warnings per hub would be more useful and is the recommended next step.
+- **Live warnings in the chat and leaderboard:** the monitor's data could become an agent tool and a hub badge; left out to keep the agent focused on historical risk.
 - **Client cost data, live address assessment, Postgres, real authentication:** right for production, not for this assignment.
 
 These are described in more detail in section 11 of [DESIGN.md](DESIGN.md).

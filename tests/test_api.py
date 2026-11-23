@@ -57,6 +57,17 @@ def test_unknown_session_is_reported_as_expired(make_client):
         assert r2["session_expired"] is False
 
 
+def test_alert_endpoints_are_protected(make_client):
+    # Running a check needs the admin token (it calls the NWS API and may send a webhook); the list needs the
+    # access code. Only the refusals are exercised here, so no real check runs against the shared database.
+    with make_client() as c:
+        assert c.post("/api/admin/alerts/check").status_code == 401
+        assert c.post("/api/admin/alerts/check", headers={"X-Admin-Token": "wrong"}).status_code == 401
+        assert c.get("/api/alerts").status_code == 401
+        body = c.get("/api/alerts", headers=CODE).json()
+        assert {"active_warnings", "recent_alerts", "last_check"} <= body.keys()
+
+
 def test_chat_input_validation(make_client):
     with make_client() as c:
         assert c.post("/api/chat", json={"message": ""}, headers=CODE).status_code == 422

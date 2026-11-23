@@ -7,6 +7,7 @@ What you can do in the web app:
 - Ask questions in a chat, for example "Which Midwest hubs are most exposed to winter disruption?", "Compare Miami and Houston for hurricanes and flooding", "What percentage of days in Denver last year had snowfall?" or "Why is the Dallas hub high?".
 - See this month's seasonal outlook (which hubs historically face the most disruption in the current month).
 - Browse the leaderboard of all 47 hubs by hazard and region, and open any hub to see the evidence behind its score.
+- Get live warning alerts: every 15 minutes the app checks which hubs are under an active National Weather Service warning and can post each new or ended warning to Slack (see Deploy).
 - Use voice: click the microphone to speak a question (Chrome, Edge and Safari), check the text and press Enter. Turn on "Read aloud" to hear answers, or click the speaker icon on any answer.
 
 **Live demo:** https://weather-risk-agent-gz90.onrender.com (the access code is provided with the submission). The free hosting plan sleeps when idle, so the first visit can take about a minute.
@@ -53,6 +54,8 @@ Open http://127.0.0.1:8000 for the web app. If `APP_ACCESS_CODE` is set in `.env
 | GET | `/api/hubs/{hub_id}/breakdown` | One hub's risk breakdown | no |
 | GET | `/api/methodology` | KPI definitions, severity shares, sources, limitations | no |
 | POST | `/api/admin/budget` | Change the daily OpenAI spend cap at runtime (`X-Admin-Token`) | no |
+| POST | `/api/admin/alerts/check` | Run one live warning check for all hubs (`X-Admin-Token`) | no |
+| GET | `/api/alerts?limit=` | Warnings active at hubs now, recent alerts, last check | no |
 | GET | `/health` | Database, data freshness, model, budget | no |
 
 Protection for a public URL: access code, 10 chat messages/minute per IP, and a daily OpenAI spend cap (`DAILY_BUDGET_USD`, default $3, adjustable at runtime).
@@ -97,6 +100,16 @@ The repository includes a `Dockerfile` and a Render Blueprint (`render.yaml`). T
 3. Wait for the build to finish and open the service URL. `/health` should report the database and model.
 
 On Render's free plan the service sleeps after 15 minutes without traffic, and the first request after that takes about a minute. Open the URL shortly before a demo.
+
+### Live warning alerts (optional)
+
+Every 15 minutes `.github/workflows/alerts.yml` asks the deployed app to check all hubs for NWS warnings that started or ended. To turn it on:
+
+1. In the GitHub repository, open Settings, then Secrets and variables, then Actions. Add the secret `ADMIN_TOKEN` (the same value as on Render) and the variable `APP_URL` (the Render URL).
+2. Optionally, in Render's Environment settings add `ALERT_WEBHOOK_URL` (a Slack incoming webhook, or a free test URL from webhook.site) to receive each alert as a message. Without it, alerts are still recorded and listed at `/api/alerts`.
+3. To test immediately, open the Actions tab, choose "Hub alert check" and click "Run workflow".
+
+A single check can also be run locally: `python -m app.alerts.monitor`.
 
 To run the same image locally:
 

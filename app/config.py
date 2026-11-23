@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     daily_budget_usd: float = 3.0        # OpenAI spend cap per UTC day; adjustable at runtime via admin endpoint
     cors_origins: str = ""               # comma-separated; empty = same origin only
 
-    # Alerts (designed but not built; see DESIGN.md section 11)
+    # Live warning alerts (app/alerts/monitor.py): where each check posts new alerts, for example a Slack
+    # incoming webhook or a webhook.site test URL. Empty = alerts are recorded but not sent.
     alert_webhook_url: str = ""
 
     # Storage
