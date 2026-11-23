@@ -392,8 +392,10 @@ async function ask(text) {
   if (!text || state.busy) return;
   state.busy = true; $("send").disabled = true;
   voice.stopListening(); voice.stopSpeaking();
+  // A conversation gets the whole column: the welcome screen and the seasonal outlook are hidden until
+  // New chat brings them back.
   $("welcome").style.display = "none";
-  if (!$("outlook").classList.contains("collapsed")) toggleOutlook(true);
+  $("outlook").hidden = true;
   $("thread").append(el("div", { class: "msg-user" }, text));
   updateNewChat();
   const t0 = Date.now();
@@ -540,7 +542,8 @@ $("new-chat").addEventListener("click", async () => {
   if (state.busy) return;
   if (state.sessionId) { try { await api("/api/chat/reset", { method: "POST", body: JSON.stringify({ session_id: state.sessionId }) }); } catch { /* ignore */ } }
   voice.stopSpeaking(); voice.stopListening();
-  state.sessionId = null; $("thread").replaceChildren(); $("welcome").style.display = ""; toggleOutlook(false);
+  state.sessionId = null; $("thread").replaceChildren(); $("welcome").style.display = "";
+  $("outlook").hidden = false; toggleOutlook(false);
   updateNewChat(); $("scroll").scrollTo({ top: 0, behavior: "smooth" }); focusComposer();
 });
 function updateNewChat() { $("new-chat").hidden = $("thread").children.length === 0; }

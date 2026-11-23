@@ -106,7 +106,9 @@ class WeatherStatInput(_Strict):
     """Arguments for get_weather_stat: one metric at one hub over a date range."""
     hub_id: HubId = Field(description="The hub.")
     metric: WeatherMetric = Field(
-        description="snow_day: snowfall >= 1 cm; trace_snow_day: >= 0.1 cm; heavy_snow_day: >= 10 cm; "
+        description="snow_day: snowfall >= 1 cm (the default for 'days with snow' or 'snowfall' questions); "
+                    "trace_snow_day: >= 0.1 cm (only when the user asks about any or trace snow); "
+                    "heavy_snow_day: >= 10 cm; "
                     "ice_day: observed glaze/freezing rain/ice pellets; freezing_day: low <= 0 C; "
                     "extreme_cold_day: low <= -15 C; rain_day: precipitation >= 1 mm; heavy_rain_day: >= 50 mm; "
                     "extreme_heat_day: high >= 38 C; damaging_gust_day: gust >= 93 km/h; thunder_day: observed "

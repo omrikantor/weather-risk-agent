@@ -76,10 +76,11 @@ cases:
     turns:
       - message: What percentage of days in Denver last year had snowfall?
         tools: [{name: get_weather_stat, args: {hub_id: denver}}]
+        # "Snowfall" must always mean snow_day (at least 1 cm): the same question once gave 7.12% (any trace)
+        # and once 4.93% (1 cm or more), so the definition is fixed in the prompt and checked here.
+        tool_arg_paths: [{name: get_weather_stat, path: metric, value: snow_day}]
         figures:
-          - any_of:
-              - {tool: get_weather_stat, args: {hub_id: denver, metric: snow_day, start_date: "2025-01-01", end_date: "2025-12-31"}, path: percent_of_days}
-              - {tool: get_weather_stat, args: {hub_id: denver, metric: trace_snow_day, start_date: "2025-01-01", end_date: "2025-12-31"}, path: percent_of_days}
+          - {tool: get_weather_stat, args: {hub_id: denver, metric: snow_day, start_date: "2025-01-01", end_date: "2025-12-31"}, path: percent_of_days}
         mention: [cm]
         question_type: [statistic]
         uncertainty: [low, medium]      # a fully measured year is not highly uncertain
