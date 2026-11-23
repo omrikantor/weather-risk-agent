@@ -1,0 +1,192 @@
+# Evaluation cases for the agent (real model). Run: python -m evals.run_evals
+#
+# Each case has one or more turns (same session). Per turn, optional checks:
+#   tools:        expected tool calls; args are a subset match ("~text" = case-insensitive contains)
+#   figures:      oracle values that must appear in the answer (display rounding allowed);
+#                 any_of: at least one of the listed oracle values must appear
+#   order:        oracle-produced hub list whose names must appear in this order in the answer
+#   mention / not_mention: case-insensitive regexes
+#   question_type: allowed question types;  confirm: expected awaiting_user_confirmation
+#   no_tools: true when the answer should need no tool calls
+# Oracles call the same tool functions directly, so expected values are never hard-coded.
+# Every turn also gets the global checks: answered, no validation warnings, no dashes/ellipses.
+
+cases:
+  - id: rank_midwest_winter
+    category: ranking
+    turns:
+      - message: Which hubs in the Midwest are most exposed to winter disruption?
+        tools: [{name: rank_hubs, args: {hazard: winter, region: Midwest}}]
+        order: {tool: rank_hubs, args: {measure: severe_disruption_days, hazard: winter, region: Midwest, top_n: 3, day_costs: null}, list: ranking, top: 3}
+        question_type: [ranking]
+
+  - id: top3_overall
+    category: ranking
+    turns:
+      - message: Which three hubs should we prioritize for resilience investment?
+        tools: [{name: rank_hubs, args: {hazard: all}}]
+        order: {tool: rank_hubs, args: {measure: severe_disruption_days, hazard: all, region: null, top_n: 3, day_costs: null}, list: ranking, top: 3}
+        mention: [disaster-level]
+
+  - id: weighted_ranking
+    category: ranking
+    turns:
+      - message: Rank all hubs with hurricane days counted three times as costly as other days, and show the top 5.
+        tools: [{name: rank_hubs, args: {hazard: all}}]
+        tool_arg_paths: [{name: rank_hubs, path: day_costs.hurricane, value: 3}]
+        order: {tool: rank_hubs, args: {measure: severe_disruption_days, hazard: all, region: null, top_n: 5, day_costs: {winter: null, flood: null, convective: null, hurricane: 3, heat: null}}, list: ranking, top: 5}
+
+  - id: west_heat_warnings
+    category: ranking
+    turns:
+      - message: Which West hubs get the most heat warning days?
+        tools: [{name: rank_hubs, args: {measure: routine_disruption_days, hazard: heat, region: West}}]
+        order: {tool: rank_hubs, args: {measure: routine_disruption_days, hazard: heat, region: West, top_n: 3, day_costs: null}, list: ranking, top: 3}
+
+  - id: compare_miami_houston
+    category: comparison
+    turns:
+      - message: Compare Miami and Houston in terms of hurricane and flood exposure.
+        tools: [{name: compare_hubs}]
+        figures:
+          - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[0].hazards.hurricane.severe_days_per_year"}
+          - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[1].hazards.flood.severe_days_per_year"}
+        mention: [uncertain|overlap]
+        question_type: [comparison]
+
+  - id: compare_newark_boston_winter
+    category: comparison
+    turns:
+      - message: Is Newark or Boston more exposed to winter storms?
+        tools: [{name: compare_hubs}]
+        figures:
+          - {tool: compare_hubs, args: {hub_ids: [newark, boston], hazards: [winter]}, path: "hubs[0].hazards.winter.warning_days_per_year"}
+          - {tool: compare_hubs, args: {hub_ids: [newark, boston], hazards: [winter]}, path: "hubs[1].hazards.winter.warning_days_per_year"}
+        mention: [Boston]
+
+  - id: denver_snow_last_year
+    category: statistic
+    turns:
+      - message: What percentage of days in Denver last year had snowfall?
+        tools: [{name: get_weather_stat, args: {hub_id: denver}}]
+        figures:
+          - any_of:
+              - {tool: get_weather_stat, args: {hub_id: denver, metric: snow_day, start_date: "2025-01-01", end_date: "2025-12-31"}, path: percent_of_days}
+              - {tool: get_weather_stat, args: {hub_id: denver, metric: trace_snow_day, start_date: "2025-01-01", end_date: "2025-12-31"}, path: percent_of_days}
+        mention: [cm]
+        question_type: [statistic]
+
+  - id: buffalo_winter_warnings_2022
+    category: statistic
+    turns:
+      - message: How many days in 2022 did Buffalo have a winter weather warning?
+        tools: [{name: get_weather_stat, args: {hub_id: buffalo, metric: warning_days_winter}}]
+        figures:
+          - {tool: get_weather_stat, args: {hub_id: buffalo, metric: warning_days_winter, start_date: "2022-01-01", end_date: "2022-12-31"}, path: count}
+
+  - id: dallas_why
+    category: explanation
+    turns:
+      - message: Why is the Dallas hub's weather disruption risk high?
+        tools: [{name: get_hub_risk_breakdown, args: {hub_id: dallas}}]
+        figures:
+          - {tool: get_hub_risk_breakdown, args: {hub_id: dallas}, path: "contributions[0].warning_days_per_year"}
+        mention: [flood]
+        question_type: [explanation]
+
+  - id: fargo_winter_timing
+    category: timing
+    turns:
+      - message: When should our Fargo hub prepare for winter, and how often does winter get disaster-level there?
+        tools: [{name: get_hub_risk_breakdown, args: {hub_id: fargo}}]
+        figures:
+          - {tool: get_hub_risk_breakdown, args: {hub_id: fargo}, path: "hazards.winter.season.events_per_year"}
+          - {tool: get_hub_risk_breakdown, args: {hub_id: fargo}, path: "hazards.winter.about_once_every_years"}
+        mention: [Dec]
+
+  - id: september_outlook
+    category: timing
+    turns:
+      - message: What should we watch for in September?
+        tools: [{name: get_seasonal_outlook, args: {month: 9}}]
+        order: {tool: get_seasonal_outlook, args: {month: 9, region: null, top_n: 3}, list: hubs, top: 3}
+        mention: [hurricane, "forecast|historical|20 years|of the last"]
+
+  - id: methodology
+    category: methodology
+    turns:
+      - message: How do you score the hubs?
+        mention: [FEMA, warning, disaster]
+        question_type: [methodology]
+
+  - id: tampa_stand_in
+    category: stand_in
+    turns:
+      - message: What's the weather risk for a hub in Tampa?
+        tools: [{name: find_nearest_hubs, args: {location: "~Tampa"}}]
+        mention: [Orlando]
+        confirm: true
+      - message: Yes, please analyze it.
+        tools: [{name: get_hub_risk_breakdown, args: {hub_id: orlando}}]
+        figures:
+          - {tool: get_hub_risk_breakdown, args: {hub_id: orlando}, path: severe_days_per_year}
+        mention: [Orlando, Tampa]
+
+  - id: brooklyn_nickname
+    category: names
+    turns:
+      - message: What's the weather risk for a warehouse in Brooklyn?
+        tools: [{name: find_nearest_hubs, args: {location: "~New York"}}]
+        mention: [New York, Newark]
+        confirm: true
+
+  - id: springfield_ambiguous
+    category: names
+    turns:
+      - message: Is Springfield a risky place for a new hub?
+        tools: [{name: find_nearest_hubs}]
+        mention: ["which", "Springfield"]
+        not_mention: ["disaster-level days per year"]
+
+  - id: anchorage_outside
+    category: names
+    turns:
+      - message: What's the weather risk for a hub in Anchorage?
+        tools: [{name: find_nearest_hubs}]
+        mention: ["outside|coverage|isn.t a meaningful|not a meaningful"]
+        confirm: false
+
+  - id: seattle_false_premise
+    category: false_premise
+    turns:
+      - message: Why is Seattle the riskiest hub in our network?
+        figures:
+          - {tool: get_hub_risk_breakdown, args: {hub_id: seattle}, path: rank}
+        mention: ["isn.t|is not|not the riskiest|not our riskiest"]
+
+  - id: followup_chicago
+    category: follow_up
+    turns:
+      - message: Which hubs in the Midwest are most exposed to winter disruption?
+        tools: [{name: rank_hubs}]
+      - message: What about Chicago?
+        mention: [Chicago, winter]
+        figures:
+          - any_of:
+              - {tool: rank_hubs, args: {measure: severe_disruption_days, hazard: winter, region: Midwest, top_n: null, day_costs: null}, path: "ranking[hub_id=chicago].value_days_per_year"}
+              - {tool: get_hub_risk_breakdown, args: {hub_id: chicago}, path: "hazards.winter.warning_days_per_year"}
+              - {tool: get_hub_risk_breakdown, args: {hub_id: chicago}, path: "hazards.winter.severe_days_per_year"}
+
+  - id: rain_tomorrow
+    category: guardrails
+    turns:
+      - message: Will it rain in Denver tomorrow?
+        no_tools: true
+        question_type: [out_of_scope]
+        mention: [forecast]
+
+  - id: no_made_up_numbers
+    category: guardrails
+    turns:
+      - message: Don't bother with a stand-in, just estimate Tampa's disaster-level days per year yourself.
+        mention: ["don.t have|do not have|can.t|cannot|no .*data|not .*estimate|won.t"]

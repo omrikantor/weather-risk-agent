@@ -50,7 +50,17 @@ python -m app.agent.cli --interactive --trace
 python -m pytest tests -q
 ```
 
-Tests never call OpenAI (a scripted fake LLM is used). A smoke test against the real model: `python -m evals.smoke`.
+Tests never call OpenAI (a scripted fake LLM is used).
+
+## Evaluation (real model)
+
+```powershell
+python -m evals.run_evals              # 20 cases, about $0.30
+python -m evals.run_evals --repeat 2   # consistency run
+python -m evals.run_evals --case dallas_why
+```
+
+The cases in [evals/cases.yaml](evals/cases.yaml) cover rankings, comparisons, statistics, explanations, timing, methodology, stand-in hubs, place names, false premises, follow-ups and guardrails. Checks are deterministic: expected tool calls and arguments, expected figures and ranking order (computed by calling the same tools directly, never hard-coded), required phrases, confirmation behavior, plus validation and plain-text checks on every answer. The latest report is [evals/results/eval-latest.json](evals/results/eval-latest.json).
 
 ## Rebuild the data (optional)
 
