@@ -22,16 +22,6 @@ from app.scoring.engine import HAZARDS
 from app.scoring.params import get_params
 
 
-def hub_warning_dates(conn: sqlite3.Connection, hub_id: str) -> dict[str, set[str]]:
-    """Local dates with a warning at the hub, per hazard (same selection as the scoring engine)."""
-    wp = get_params()["warnings"]
-    ugc = conn.execute("SELECT ugc, timezone FROM hub_ugc WHERE hub_id=?", (hub_id,)).fetchall()
-    codes = [u[0] for u in ugc] + [f"POINT:{hub_id}"]
-    w = pd.read_sql(f"SELECT phenomena, issue, expire FROM nws_warnings WHERE ugc IN ({','.join('?' * len(codes))})",
-                    conn, params=codes)
-    return m.warning_days(w, ugc[0][1] if ugc else "UTC", wp["phenomena"], (wp["first_year"], wp["last_year"]))
-
-
 def monthly_rows(hub_id: str, dates: dict[str, set[str]], shares: dict[str, float],
                  storm_dates: list[str], years: tuple[int, int], storm_years: tuple[int, int],
                  level: float) -> list[tuple]:
@@ -140,7 +130,7 @@ def compute(conn: sqlite3.Connection) -> dict:
     total = 0
     n_years = wp["last_year"] - wp["first_year"] + 1
     for (hub_id,) in conn.execute("SELECT id FROM hubs ORDER BY id").fetchall():
-        dates = hub_warning_dates(conn, hub_id)
+        dates = m.hub_warning_dates(conn, hub_id)   # same warning selection as the scoring engine
         conn.executemany("INSERT INTO hub_hazard_season VALUES (?, ?, ?)",
                          [(hub_id, h, json.dumps(season_profile(dates.get(h, set()), n_years))) for h in HAZARDS])
         row = conn.execute("SELECT details_json FROM hub_event_rates WHERE hub_id=? AND hazard='hurricane_days' "

@@ -158,10 +158,10 @@ Current severity shares, pooled over the 47 hubs:
 | Hazard | Severity share | Basis |
 |---|---|---|
 | Hurricane / tropical | 46.3% | 100 of 216 warning days |
-| Flood | 16.7% | 559 of 3,355 |
+| Flood | 16.1% | 522 of 3,234 |
 | Winter | 4.8% | 110 of 2,271 |
-| Thunderstorm / wind | 4.4% | 267 of 6,111 |
-| Heat | 0% | 0 of 2,053 |
+| Thunderstorm / wind | 4.4% | 267 of 6,110 |
+| Heat | 0% | 0 of 2,013 |
 
 Heat is 0% because FEMA did not declare a single heat disaster in 1996 to 2025. The system explains this as "no evidence of disaster-level heat", not "heat is harmless", and still reports heat warning days.
 
@@ -174,10 +174,11 @@ The measure went through several versions, each one corrected by evidence from t
 3. **FEMA building loss as a severity weight.** Rejected: property loss is not operational disruption.
 4. **NWS warnings for frequency, FEMA declarations for severity** (the current method). Warnings are locally calibrated, which solves the Phoenix problem. Declarations measure what actually became a disaster, which gives hurricanes their real weight without anyone choosing it.
 
-Two data problems found along the way were fixed in general ways:
+Three data problems found along the way were fixed in general ways:
 
 - **Large counties.** Counting every flash flood or thunderstorm warning that touched Maricopa County gave Phoenix 758 flash-flood warnings; counting only warning polygons that contain the hub gives 31. Storm-based warnings are now counted only when the polygon contains the hub.
 - **Misfiled disasters.** FEMA often files winter disasters as "Severe Storm" or "Flood" (for example "SEVERE WINTER STORMS AND BLIZZARD CONDITIONS"). Declarations now match a hazard by type or by title keywords; snowmelt and ice-jam titles are excluded from winter because they are floods.
+- **Implausibly long warnings.** One Indianapolis areal flood warning in the archive runs 85 days (February to May 2009), while 99% of warnings of that type last 5 days or less, and no flood disaster was declared there that year. It alone supplied up to 85 of Indianapolis's flood warning days. Each warning now counts for at most the 99th-percentile duration of its own type, computed from all stored warnings (for example 5 days for areal floods and 9 for heat). This trims 123 of 13,277 warnings; the overall ranking barely changes (rank correlation 0.992), Indianapolis moves from 4th to 14th and Fargo from 5th to 10th. The cost is that genuinely long events, such as the 2011 Red River flood at Fargo, are also shortened. See DECISIONS.md, D5.
 
 ### 5.3 Supporting calculations
 
@@ -236,20 +237,23 @@ The leaderboard, outlook and hub panel use the same tool functions as the agent,
 - *Reading answers aloud*: a "Read aloud" switch reads each new answer, and a speaker button on every answer reads that one. The spoken text is built from the displayed answer: one sentence per paragraph, list item and table row, without markdown symbols, and "/yr" is read as "per year". It is spoken a few sentences at a time because Chrome stops long utterances after about 15 seconds. Reading stops when a new question is asked or a new chat starts.
 - *Privacy*: in Chrome, speech recognition sends the audio to Google's speech service. A production deployment that must keep audio in-house would use a self-hosted speech model instead.
 
+**Conversation memory**: conversations are kept in the server's memory for 2 hours, which keeps the service simple and stateless on disk. On the free hosting plan the server sleeps after about 15 minutes without requests and loses that memory, as it does on every redeploy. Two measures handle this: while the page is open it checks `/health` every 10 minutes, which keeps the server awake at no model cost; and when the server receives a conversation id it no longer holds, the answer is shown with a note that the earlier conversation expired, so a follow-up question is never answered silently without its context. A production version would keep conversations in a shared store such as Redis or Postgres.
+
 **Client view and developer view**: by default the interface shows what a client needs (the answer, a confidence badge, "Sources and reliability" with a confirmation that all figures were checked against the data, plain-language evidence in the hub panel). Tool calls, field-level number tracing, tokens and cost are available in a developer view (Methodology, "Show technical details", or `?dev=1`) for demonstrations.
 
 ## 9. Testing and evaluation
 
-**Unit and integration tests** (`tests/`, 125 tests, no OpenAI calls): scoring functions on synthetic data, the tools and the place lookup on the real database, the validator and text cleanup, the agent loop with a scripted fake model, and the API including access control, rate limit, budget and outage handling.
+**Unit and integration tests** (`tests/`, 128 tests, no OpenAI calls): scoring functions on synthetic data, the tools and the place lookup on the real database, the validator and text cleanup, the agent loop with a scripted fake model, and the API including access control, rate limit, budget and outage handling.
 
 **Evaluation of the real model** (`evals/`, `python -m evals.run_evals`): 20 cases, some with several turns, covering rankings (including analyst weights), comparisons, statistics, explanations, timing and the seasonal outlook, methodology, stand-in hubs, nicknames, ambiguous and out-of-coverage places, a false premise, a follow-up and guardrails (an out-of-scope forecast question and a request to make up a number). Checks are deterministic: expected tool calls and arguments, expected figures and ranking order computed by calling the same tools directly (never hard-coded), required and forbidden phrases, question type and confirmation behavior, plus validation, completion and plain-text checks on every answer.
 
-Latest run, every case twice: **40 of 40 passed**, average 10.3 seconds and 0.013 USD per answer. The evaluations also found real problems that were then fixed (for example the model deciding on its own that "Springfield" is ambiguous instead of using the data).
+Results: before the warning-duration cap, every case run twice passed (**40 of 40**, average 10.3 seconds and 0.013 USD per answer). After rescoring with the cap, a full run passed **20 of 20** (average 11.1 seconds and 0.013 USD per answer; report in `evals/results/eval-latest.json`). The evaluations also found real problems that were then fixed: the model deciding on its own that "Springfield" is ambiguous instead of using the data, and one check that was stricter than the system prompt (it required "0.93 days per year" where the prompt asks for "about once every 1.1 years"; both forms now pass because both come from the same tool output).
 
 ## 10. Assumptions, uncertainty and limitations
 
 - **The hub network is an assumption.** The assignment does not list hubs, so we chose 47 US cities that cover every Census region and every hazard type, using city-center coordinates. For a real client, `data/hubs.yaml` would hold their actual sites; adding a hub is one line plus a rebuild.
 - **Regions** are US Census Bureau regions.
+- **Warning durations are capped.** A warning counts for at most the 99th-percentile duration of its type, which removes archive outliers but also shortens real multi-week events (section 5.2).
 - **Warnings are forecasts.** NWS warnings include some false alarms and misses, and their criteria and names changed over time (for example "Excessive Heat" became "Extreme Heat" in 2024; both are counted).
 - **Declarations are partly policy-driven.** Federal declaration thresholds depend on statewide damage per resident, and heat is essentially never declared. Incident periods are administrative and can be longer than the weather itself.
 - **Severity shares are pooled** across our 47 hubs, because we do not have warning data for every US county.

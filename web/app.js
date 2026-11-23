@@ -385,6 +385,12 @@ async function ask(text) {
     state.sessionId = r.session_id;
     const card = answerCard(r);
     thinking.replaceWith(card);
+    // The server no longer held this conversation (it expired or the server restarted), so the answer was
+    // given without the earlier context. Say so above the answer instead of failing silently.
+    if (r.session_expired) {
+      card.before(el("div", { class: "session-note", role: "status" },
+        "Your earlier conversation expired, so this answer starts a new one. Please repeat any details it needs."));
+    }
     if (state.speak) voice.speakCard(card);
     loadHealth();
   } catch (err) {
@@ -721,6 +727,12 @@ function loadAll() { loadOutlook(); loadBoard(); }
   if (h && h.access_code_required && !state.code) { showCodeModal(); return; }
   loadAll();
 })();
+
+/* Keep-alive: the free hosting plan puts the server to sleep after about 15 minutes without requests, and a
+   sleeping server loses its conversations. While this page is open it checks /health every 10 minutes, which
+   keeps the server awake and the status dot current. /health never calls the AI model, so this costs nothing. */
+const KEEP_ALIVE_MS = 10 * 60 * 1000;
+setInterval(loadHealth, KEEP_ALIVE_MS);
 
 /* localStorage wrapper that never throws (private browsing can block storage). */
 function makeStorage() {

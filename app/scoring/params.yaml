@@ -1,8 +1,9 @@
 # Method parameters (versioned). Data values are never altered; these settings only
-# control how we compute from the data. Each has a rationale; see PLAN.md section 2.5.
-# Same data + same params -> same output.
+# control how we compute from the data. Each has a rationale; see PLAN.md section 2.5
+# and DECISIONS.md. The same data and the same parameters always give the same output.
 
-params_version: "1.2"
+# 1.3: warnings capped at their type's 99th-percentile duration (warnings.max_duration_percentile).
+params_version: "1.3"
 
 # ---------------------------------------------------------------------------------------
 # Tier A: long-term event records counted around each hub
@@ -126,6 +127,12 @@ warnings:
   first_year: 2006
   last_year: 2025
   significance: W               # warnings only (not watches or advisories)
+  # A warning counts for at most this percentile of the durations of its type, computed from all stored
+  # warnings. Reason: a few archive records run far beyond what the type allows in practice (an 85-day areal
+  # flood warning, against a 99th percentile of about 5 days for that type). A high percentile of the type's
+  # own distribution trims such outliers without a hand-picked limit. The value was set once as standard
+  # outlier trimming and is not tuned to rankings; its effect is reported in DECISIONS.md (D5).
+  max_duration_percentile: 99
   phenomena:                    # NWS VTEC phenomena codes -> our hazards
     winter: [WS, BZ, IS, LE]    # winter storm, blizzard, ice storm, lake-effect snow
     flood: [FF, FA, CF]         # flash flood, areal flood, coastal flood (river-gauge FL excluded)

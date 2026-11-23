@@ -115,6 +115,10 @@ def chat(body: ChatRequest, request: Request) -> dict:
         raise HTTPException(429, "Today's question budget has been used. The ranking and hub data endpoints "
                                  "still work; please contact the app owner to raise the budget.")
     session_id = body.session_id or uuid.uuid4().hex[:12]
+    # The browser sent a conversation id the server no longer holds (it expired, or the server restarted after
+    # sleeping or a redeploy). The turn still runs as a fresh conversation; the flag lets the UI say so, since
+    # a follow-up question can no longer rely on earlier context.
+    session_expired = bool(body.session_id) and not st.agent.store.exists(body.session_id)
     request_id = uuid.uuid4().hex[:8]
     # One turn at a time per conversation: two requests for the same session would otherwise interleave
     # their messages in the shared history.
@@ -129,7 +133,7 @@ def chat(body: ChatRequest, request: Request) -> dict:
     log.info("chat request=%s session=%s latency_ms=%s cost=%.4f tools=%s warnings=%s", request_id,
              result.session_id, result.latency_ms, result.usage.cost_usd, [t.tool for t in result.trace],
              len(result.validation_warnings))
-    return {**result.to_dict(), "request_id": request_id}
+    return {**result.to_dict(), "request_id": request_id, "session_expired": session_expired}
 
 
 @app.post("/api/chat/reset", dependencies=[Depends(require_access)], tags=["chat"])

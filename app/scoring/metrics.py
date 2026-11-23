@@ -148,12 +148,36 @@ def max_3day_precip_mean(prcp: pd.Series) -> float | None:
     return float(vals.mean()) if len(vals) else None
 
 
+def _utc(s: pd.Series) -> pd.Series:
+    """Parse UTC ISO times. The two IEM endpoints use slightly different formats ("T03:58Z" and
+    "T03:58:00Z"), so the parser is told to accept any ISO 8601 form."""
+    return pd.to_datetime(s, utc=True, format="ISO8601")
+
+
+def duration_caps_days(warnings: pd.DataFrame, percentile: float) -> dict[str, float]:
+    """The longest duration (in days) a warning of each type may count for: the given percentile of the
+    durations of all warnings of that type.
+
+    Why: a few archive records run far longer than the type allows in practice (for example an 85-day areal
+    flood warning, where the 99th percentile for that type is about 5 days). Capping at a high percentile of the
+    type's own distribution trims such outliers with a limit derived from the data, not chosen by hand, and
+    leaves the other 99% of warnings untouched.
+
+    warnings: columns phenomena, issue, expire (UTC ISO strings), normally every stored warning.
+    """
+    if warnings.empty:
+        return {}
+    days = (_utc(warnings["expire"]) - _utc(warnings["issue"])).dt.total_seconds() / 86400
+    return days.groupby(warnings["phenomena"]).quantile(percentile / 100).to_dict()
+
+
 def warning_days(warnings: pd.DataFrame, tz: str, phenomena: dict[str, list[str]],
-                 years: tuple[int, int]) -> dict[str, set[str]]:
+                 years: tuple[int, int], caps: dict[str, float] | None = None) -> dict[str, set[str]]:
     """Local calendar dates covered by at least one warning, per hazard.
 
-    warnings: columns phenomena, issue, expire (UTC ISO strings). A warning covers every local
-    date from its issue time to its expire time, inclusive.
+    warnings: columns phenomena, issue, expire (UTC ISO strings). A warning covers every local date from its
+    issue time to its expire time, inclusive. With caps ({type: days}, see duration_caps_days), a warning
+    counts for at most that many days after its issue time.
     """
     out = {h: set() for h in phenomena}
     if warnings.empty:
@@ -161,12 +185,17 @@ def warning_days(warnings: pd.DataFrame, tz: str, phenomena: dict[str, list[str]
     code_to_hazard = {c: h for h, codes in phenomena.items() for c in codes}
     w = warnings[warnings["phenomena"].isin(code_to_hazard)].copy()   # drop types we do not use (advisories)
 
-    # Convert UTC times to the hub's local calendar date. The two IEM endpoints use slightly different ISO
-    # formats ("T03:58Z" and "T03:58:00Z"), so the parser is told to accept any ISO 8601 form.
-    def to_local_date(s):
-        return pd.to_datetime(s, utc=True, format="ISO8601").dt.tz_convert(tz).dt.normalize().dt.tz_localize(None)
+    issue, expire = _utc(w["issue"]), _utc(w["expire"])
+    if caps:
+        # Latest time each warning may count until; types without a cap keep their recorded expire time.
+        limit = issue + pd.to_timedelta(w["phenomena"].map(caps), unit="D")
+        expire = expire.where(limit.isna() | (expire <= limit), limit)
 
-    w["start"], w["stop"] = to_local_date(w["issue"]), to_local_date(w["expire"])
+    # Convert UTC times to the hub's local calendar date, so a warning day is a local calendar day.
+    def to_local_date(t: pd.Series) -> pd.Series:
+        return t.dt.tz_convert(tz).dt.normalize().dt.tz_localize(None)
+
+    w["start"], w["stop"] = to_local_date(issue), to_local_date(expire)
     w["stop"] = w[["start", "stop"]].max(axis=1)   # guards against an expire time recorded before the issue time
     # A set of dates per hazard means overlapping warnings on the same day count as one warning day.
     lo, hi = str(years[0]), str(years[1])
@@ -202,6 +231,27 @@ def share_with_interval(k: int, n: int, level: float) -> dict:
 
 
 # --------------------------------------------------------------------------- database
+
+
+def hub_warning_dates(conn: sqlite3.Connection, hub_id: str) -> dict[str, set[str]]:
+    """Local dates with an NWS warning at one hub, per hazard. The single place that selects a hub's warnings,
+    used by scoring, the seasonal outlook and the weather-statistics tool, so all three always agree.
+
+    A hub is linked to its NWS forecast zone and county (hub_ugc); zone and county warnings are counted as
+    issued. Storm-based warnings (thunderstorm, tornado, flash flood) were stored under the code
+    POINT:<hub_id> only when their polygon contains the hub, so a warning for the far side of a large county
+    is not counted. Each warning is capped at its type's duration percentile (duration_caps_days).
+    """
+    wp = get_params()["warnings"]
+    ugc = conn.execute("SELECT ugc, timezone FROM hub_ugc WHERE hub_id=?", (hub_id,)).fetchall()
+    tz = ugc[0][1] if ugc else "UTC"   # the hub's local time zone
+    codes = [u[0] for u in ugc] + [f"POINT:{hub_id}"]
+    hub_warnings = pd.read_sql(f"SELECT phenomena, issue, expire FROM nws_warnings WHERE ugc IN "
+                               f"({','.join('?' * len(codes))})", conn, params=codes)
+    # Caps come from all stored warnings (every hub), so they describe each warning type, not this hub.
+    all_warnings = pd.read_sql("SELECT phenomena, issue, expire FROM nws_warnings", conn)
+    caps = duration_caps_days(all_warnings, wp["max_duration_percentile"])
+    return warning_days(hub_warnings, tz, wp["phenomena"], (wp["first_year"], wp["last_year"]), caps)
 
 
 def load_hub_daily(conn: sqlite3.Connection, hub_id: str) -> tuple[dict, dict, pd.DataFrame | None, dict]:

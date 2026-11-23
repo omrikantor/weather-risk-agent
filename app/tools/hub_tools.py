@@ -322,11 +322,7 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
     if metric.startswith("warning_days_"):
         hazard = metric.removeprefix("warning_days_")
         wp = get_params()["warnings"]
-        ugc = conn.execute("SELECT ugc, timezone FROM hub_ugc WHERE hub_id=?", (hub,)).fetchall()
-        codes = [u[0] for u in ugc] + [f"POINT:{hub}"]
-        w = pd.read_sql(f"SELECT phenomena, issue, expire FROM nws_warnings WHERE ugc IN ({','.join('?' * len(codes))})",
-                        conn, params=codes)
-        wd = m.warning_days(w, ugc[0][1], wp["phenomena"], (wp["first_year"], wp["last_year"]))[hazard]
+        wd = m.hub_warning_dates(conn, hub)[hazard]   # same selection as the scoring engine
         lo_ok, hi_ok = f"{wp['first_year']}-01-01", f"{wp['last_year']}-12-31"
         covered = [d for d in days if lo_ok <= d <= hi_ok]
         count = sum(d in wd for d in covered)

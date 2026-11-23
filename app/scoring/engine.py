@@ -104,17 +104,9 @@ def hub_evidence(conn: sqlite3.Connection, hub_id: str) -> dict:
     sp, ep, wp = p["scoring"], p["event_rates"], p["warnings"]
     level = ep["confidence_level"]
 
-    # Main measure: days with an NWS warning at the hub.
-    # A hub is linked to its NWS forecast zone and its county (hub_ugc). Zone and county products are counted
-    # as issued. Storm-based warnings (thunderstorm, tornado, flash flood) were stored under the special code
-    # POINT:<hub_id> only when their polygon contains the hub, so a warning for the far side of a large county
-    # is not counted.
-    ugc = conn.execute("SELECT ugc, kind, timezone FROM hub_ugc WHERE hub_id=?", (hub_id,)).fetchall()
-    tz = ugc[0][2] if ugc else "UTC"   # local time zone, so a warning day is a local calendar day
-    codes = [u[0] for u in ugc] + [f"POINT:{hub_id}"]
-    warns = pd.read_sql(f"SELECT phenomena, issue, expire FROM nws_warnings WHERE ugc IN "
-                        f"({','.join('?' * len(codes))})", conn, params=codes)
-    wdays = m.warning_days(warns, tz, wp["phenomena"], (wp["first_year"], wp["last_year"]))
+    # Main measure: days with an NWS warning at the hub (selection rules in metrics.hub_warning_dates).
+    ugc = conn.execute("SELECT ugc FROM hub_ugc WHERE hub_id=?", (hub_id,)).fetchall()
+    wdays = m.hub_warning_dates(conn, hub_id)
     n_days = len(pd.date_range(f"{wp['first_year']}-01-01", f"{wp['last_year']}-12-31"))
 
     # Supporting evidence: days above fixed weather thresholds, from station data with model data as backup.

@@ -145,6 +145,25 @@ def test_mixed_iso_formats_are_parsed():
     assert m.warning_days(w, "UTC", PHEN, (2006, 2025))["winter"] == {"2016-02-25", "2016-03-01"}
 
 
+def test_duration_caps_are_a_percentile_per_type():
+    # Ten 1-day winter warnings and one 50-day outlier: the 50th percentile cap is 1 day; heat has its own cap.
+    issue = ["2020-01-01T00:00:00Z"] * 11 + ["2020-07-01T00:00:00Z"]
+    expire = ["2020-01-02T00:00:00Z"] * 10 + ["2020-02-20T00:00:00Z"] + ["2020-07-04T00:00:00Z"]
+    w = pd.DataFrame({"phenomena": ["WS"] * 11 + ["EH"], "issue": issue, "expire": expire})
+    caps = m.duration_caps_days(w, 50)
+    assert caps["WS"] == pytest.approx(1.0) and caps["EH"] == pytest.approx(3.0)
+
+
+def test_capped_warning_counts_only_up_to_its_cap():
+    # A 40-day warning with a 2-day cap covers its issue date and the next two dates only.
+    w = pd.DataFrame({"phenomena": ["WS"], "issue": ["2021-01-10T00:00:00Z"], "expire": ["2021-02-19T00:00:00Z"]})
+    capped = m.warning_days(w, "UTC", PHEN, (2006, 2025), caps={"WS": 2.0})["winter"]
+    assert capped == {"2021-01-10", "2021-01-11", "2021-01-12"}
+    # Without caps, or for a type that has no cap, the recorded expire time is used.
+    assert len(m.warning_days(w, "UTC", PHEN, (2006, 2025))["winter"]) == 41
+    assert len(m.warning_days(w, "UTC", PHEN, (2006, 2025), caps={"EH": 2.0})["winter"]) == 41
+
+
 def test_warning_days_outside_window_excluded():
     w = pd.DataFrame({"phenomena": ["WS"], "issue": ["2005-12-31T12:00:00Z"], "expire": ["2006-01-01T12:00:00Z"]})
     assert m.warning_days(w, "UTC", PHEN, (2006, 2025))["winter"] == {"2006-01-01"}

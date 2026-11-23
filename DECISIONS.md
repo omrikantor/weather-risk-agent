@@ -43,7 +43,7 @@ This went through four versions. Each change was triggered by evidence, not by p
 **Version 4 (current): NWS warnings for frequency, FEMA major-disaster declarations for severity.**
 
 - National Weather Service warning criteria are set by each local office, so a warning means "dangerous for this place". This fixed the Phoenix problem without us choosing any threshold.
-- FEMA declarations show how often a warning day became an actual disaster. The share of warning days inside a declared disaster gives each hazard its severity from data: about 46% for hurricanes, 17% for floods, 5% for winter, 4% for thunderstorms and 0% for heat. Nobody chose these numbers.
+- FEMA declarations show how often a warning day became an actual disaster. The share of warning days inside a declared disaster gives each hazard its severity from data: about 46% for hurricanes, 16% for floods, 5% for winter, 4% for thunderstorms and 0% for heat. Nobody chose these numbers.
 - The primary measure is disaster-level days per year (warning days times severity share). Warning days per year are always reported next to it, so a hub with frequent but rarely catastrophic weather does not look safe.
 
 **Thought process on heat.** Heat getting zero disaster-level days looked wrong at first. We checked: FEMA did not declare a single heat disaster in our 30-year window. Rather than invent a severity for heat, we kept the data result and made the system say clearly that this means "no evidence of disaster-level heat", while still reporting heat warning days.
@@ -54,6 +54,13 @@ This went through four versions. Each change was triggered by evidence, not by p
 - **No hub-specific fixes.** When a single hub looked wrong, we looked for the general cause. Two examples:
   - Phoenix had 758 flash-flood warnings because Maricopa County is huge. The general fix: storm-based warnings count only when the warning polygon contains the hub. Phoenix dropped to 31, and every other large county was corrected the same way.
   - Some winter disasters were missing because FEMA filed them as "Severe Storm". The general fix: match declarations by type or by title keywords, with snowmelt and ice jams excluded from winter because they are floods.
+  - Indianapolis ranked 4th partly because of one areal flood warning recorded as lasting 85 days (February to May 2009). See the outlier rule below.
+- **Outliers are trimmed by a rule from the data, chosen once.** A code review found the 85-day warning while checking warning durations: 99% of areal flood warnings last 5 days or less, and FEMA declared no flood disaster in that county in 2009, so the record is very unlikely to describe 85 days of real disruption.
+  - *Options considered:* leave it and document it; delete the single record; cap every warning at a fixed number of days; cap every warning at a high percentile of its own type's durations.
+  - *Choice:* cap each warning at the 99th-percentile duration of its type, computed from all stored warnings (`warnings.max_duration_percentile` in params.yaml). Deleting one record would be a hub-specific fix, and a fixed day limit would be our judgment; a percentile of the type's own distribution is derived from the data and treats every hub the same way.
+  - *Guarding against overfitting:* the problem was found while looking at one hub, and the effect on the ranking was measured before deciding. To keep the decision honest, the percentile was set once as standard outlier trimming (99th) and not tuned (no trying other percentiles to see which ranking looks better), and both rankings are reported here.
+  - *Effect:* 123 of 13,277 warnings are shortened. Rank correlation between the old and new ranking is 0.992; the top 3 are unchanged. Indianapolis moves from 4th to 14th (2.06 to 1.36 disaster-level days per year) and Fargo from 5th to 10th (1.91 to 1.58).
+  - *Cost:* genuinely long events are shortened too. The 2011 Red River flood at Fargo lasted weeks, and Fargo's flood warning days drop accordingly. We accept this because the measure is meant to show how often a hazard strikes: a long event still counts, for up to its type's 99th-percentile length, while without the cap a handful of records, some of them likely errors, would decide rankings.
 - **No use of our own prior knowledge as data.** Expected answers in the evaluation are computed by calling the tools, never typed in by hand.
 
 ## D6. Tiers and uncertainty

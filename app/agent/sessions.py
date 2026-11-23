@@ -60,6 +60,13 @@ class SessionStore:
             self._sessions[s.id] = s
             return s
 
+    def exists(self, session_id: str) -> bool:
+        """True if this conversation is still held. False after it expired or the server restarted, which the
+        API reports to the UI so the user knows earlier context is gone."""
+        with self._lock:
+            self._expire()
+            return session_id in self._sessions
+
     def reset(self, session_id: str) -> None:
         """Forget a conversation (the New chat button)."""
         with self._lock:

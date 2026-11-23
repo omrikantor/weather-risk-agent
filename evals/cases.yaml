@@ -48,9 +48,15 @@ cases:
     turns:
       - message: Compare Miami and Houston in terms of hurricane and flood exposure.
         tools: [{name: compare_hubs}]
+        # Values below 1 may be written as days per year or, as the system prompt asks, as "about once every
+        # N years"; both come from the same tool output, so either form passes.
         figures:
-          - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[0].hazards.hurricane.severe_days_per_year"}
-          - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[1].hazards.flood.severe_days_per_year"}
+          - any_of:
+              - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[0].hazards.hurricane.severe_days_per_year"}
+              - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[0].hazards.hurricane.about_once_every_years"}
+          - any_of:
+              - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[1].hazards.flood.severe_days_per_year"}
+              - {tool: compare_hubs, args: {hub_ids: [miami, houston], hazards: [hurricane, flood]}, path: "hubs[1].hazards.flood.about_once_every_years"}
         mention: [uncertain|overlap]
         question_type: [comparison]
 

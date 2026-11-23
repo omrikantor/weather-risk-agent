@@ -46,6 +46,17 @@ def test_chat_round_trip_and_session(make_client):
         assert c.post("/api/chat/reset", json={"session_id": r1["session_id"]}, headers=CODE).status_code == 200
 
 
+def test_unknown_session_is_reported_as_expired(make_client):
+    # A conversation id the server does not hold (expired, or lost in a restart) starts fresh and is flagged;
+    # the next turn in that new conversation is not flagged.
+    with make_client([resp(text=answer("a")), resp(text=answer("b")), resp(text=answer("c"))]) as c:
+        assert c.post("/api/chat", json={"message": "q"}, headers=CODE).json()["session_expired"] is False
+        r = c.post("/api/chat", json={"message": "q", "session_id": "lost123"}, headers=CODE).json()
+        assert r["session_expired"] is True and r["session_id"] == "lost123"
+        r2 = c.post("/api/chat", json={"message": "q", "session_id": "lost123"}, headers=CODE).json()
+        assert r2["session_expired"] is False
+
+
 def test_chat_input_validation(make_client):
     with make_client() as c:
         assert c.post("/api/chat", json={"message": ""}, headers=CODE).status_code == 422
