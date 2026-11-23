@@ -95,6 +95,14 @@ def _profiles(db_path: str) -> tuple[pd.DataFrame, list[str]]:
     return (wide / scale).clip(upper=1.0).fillna(0.0), hazards
 
 
+def network_widest_gap_km(hubs: pd.DataFrame) -> float:
+    """Largest distance from any hub to its nearest neighboring hub (the network's sparsest point)."""
+    lat, lon = hubs["lat"].to_numpy(), hubs["lon"].to_numpy()
+    d = haversine_km(lat[:, None], lon[:, None], lat[None, :], lon[None, :])
+    np.fill_diagonal(d, np.inf)
+    return float(d.min(axis=1).max())
+
+
 def _hubs(conn) -> pd.DataFrame:
     h = pd.read_sql("SELECT id, name, state, lat, lon, county_fips FROM hubs", conn)
     h["key"] = h["name"].map(normalize)
@@ -123,12 +131,7 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
     db_path = conn.execute("PRAGMA database_list").fetchone()[2]
     try:
         name, state = split_state(location)
-        alias = sp.get("place_aliases", {}).get(name) or sp.get("place_aliases", {}).get(normalize(location))
-        note = None
-        if alias and state in (None, split_state(alias)[1]):
-            note = f"interpreted '{location}' as {alias}"
-            name, state = split_state(alias)
-        result = {"query": location, "parsed": {"name": name, "state": state}, **({"note": note} if note else {})}
+        result = {"query": location, "parsed": {"name": name, "state": state}}
 
         hubs = _hubs(conn)
         places, exact, alias = _place_index(db_path)
@@ -183,14 +186,17 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
         prof, hazards = _profiles(db_path)
         d = haversine_km(place["lat"], place["lon"], hubs["lat"].to_numpy(), hubs["lon"].to_numpy())
         near = hubs.assign(distance_km=d).sort_values(["distance_km", "id"]).head(sp["candidates"])
-        if near["distance_km"].iloc[0] > sp["coverage_max_km"]:
+        coverage_km = network_widest_gap_km(hubs)
+        if near["distance_km"].iloc[0] > coverage_km:
             n0 = near.iloc[0]
             return {**result, "status": "outside_coverage",
                     "place": {"name": place["full_name"], "state": place["state"]},
                     "nearest_hub": {"hub_id": n0["id"], "hub_name": n0["name"],
                                     "distance_km": round(float(n0["distance_km"]))},
-                    "message": "This place is outside the hub network's coverage (the nearest hub is more than "
-                               f"{sp['coverage_max_km']} km away), so no hub is a meaningful stand-in."}
+                    "coverage_km": round(coverage_km),
+                    "message": f"This place is outside the hub network's coverage: its nearest hub is "
+                               f"{round(float(n0['distance_km']))} km away, more than the network's widest gap between "
+                               f"neighboring hubs ({round(coverage_km)} km), so no hub is a meaningful stand-in."}
         p_vec = prof.loc[place["county_fips"]] if place["county_fips"] in prof.index else None
 
         candidates = []

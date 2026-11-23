@@ -167,21 +167,12 @@ stand_in:
   # Combined scores this close are not a meaningful difference (county-level hazard profiles are
   # coarse); distance is measured exactly, so the closer hub wins.
   tie_margin: 2.0
-  # Every mainland US place is within 596 km of a hub; Alaska, Hawaii and Puerto Rico are all
-  # >= 1,050 km away. Beyond this distance no hub is a meaningful stand-in.
-  coverage_max_km: 800
-  # Well-known names that are not Census "places" (e.g. NYC boroughs) -> the place to use instead.
-  place_aliases:
-    brooklyn: "New York, NY"
-    queens: "New York, NY"
-    bronx: "New York, NY"
-    the bronx: "New York, NY"
-    manhattan: "New York, NY"
-    staten island: "New York, NY"
-    nyc: "New York, NY"
-    new york city: "New York, NY"
-    dc: "Washington, DC"
-    washington dc: "Washington, DC"
+  # Coverage: a place is covered when its nearest hub is no farther than the network's widest gap
+  # (the largest hub-to-nearest-hub distance, computed from hubs.yaml; 622 km today). Beyond that,
+  # no hub is a meaningful stand-in (today: all mainland places are covered; AK, HI, PR are not).
+  coverage: network_widest_gap
+  # Nicknames / boroughs ("NYC", "Brooklyn", "Philly") are converted to official "City, ST" names by
+  # the agent before calling the tool (prompt rule); the lookup itself stays deterministic.
   # Hazard profile = FEMA NRI annualized frequency for these hazards, each scaled by the
   # 95th percentile across all US counties (capped at 1) so the 10 hazards are comparable.
   profile_hazards: [winter_weather, ice_storm, cold_wave, hurricane, coastal_flood,

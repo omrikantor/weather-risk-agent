@@ -80,16 +80,20 @@ def test_far_mainland_place_gets_caveat():
     assert r["status"] == "matched" and r["far_away"] is True
 
 
-@pytest.mark.parametrize("q", ["Brooklyn", "Queens", "NYC", "Washington DC"])
-def test_aliases_for_non_census_places(q):
-    r = find_nearest_hubs(q)
-    assert r["status"] == "matched" and "interpreted" in r["note"]
-    assert r["place"]["state"] in ("NY", "DC")
+def test_coverage_comes_from_the_network():
+    from app.db import get_connection
+    from app.tools.locate import _hubs, network_widest_gap_km
+    conn = get_connection()
+    gap = network_widest_gap_km(_hubs(conn))
+    conn.close()
+    assert 500 < gap < 800                       # today: Billings' nearest hub, ~622 km
+    r = find_nearest_hubs("Anchorage")
+    assert r["coverage_km"] == round(gap) and r["nearest_hub"]["distance_km"] > gap
 
 
-def test_brooklyn_with_other_state_is_not_aliased():
-    r = find_nearest_hubs("Brooklyn, OH")
-    assert r["status"] == "matched" and r["place"]["state"] == "OH"
+@pytest.mark.parametrize("q", ["New York, NY", "Washington, DC"])
+def test_official_names_used_by_the_agent_resolve(q):
+    assert find_nearest_hubs(q)["status"] == "matched"
 
 
 @pytest.mark.parametrize("q", ["Tampa, FL", "Spokane, WA", "Tulsa", "Fort Worth"])
