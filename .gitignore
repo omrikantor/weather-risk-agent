@@ -1,0 +1,21 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Raw downloaded data (cache; rebuilt by app.ingest.build_db)
+data/raw/*
+!data/raw/.gitkeep
+
+# Eval run outputs (keep only files explicitly added with -f)
+evals/results/*.json
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
