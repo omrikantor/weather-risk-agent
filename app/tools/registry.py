@@ -37,6 +37,10 @@ TOOLS: dict[str, Tool] = {tool.name: tool for tool in [
          t.get_weather_stat),
     Tool("get_methodology", "How scores are computed: KPI definitions, severity shares, data sources, assumptions "
                             "and limitations.", s.MethodologyInput, t.get_methodology),
+    Tool("get_seasonal_outlook", "Which hubs historically face the most disruption in a given calendar month "
+                                 "(default: this month), the main hazard, how often it happened (% of years), and "
+                                 "past FEMA disasters in that month. Historical frequency, not a forecast.",
+         s.SeasonalOutlookInput, t.get_seasonal_outlook),
     Tool("find_nearest_hubs", "For a US place that is NOT one of our hubs: locate it and recommend the most similar "
                               "nearby hub as a stand-in (hazard-profile similarity + distance).",
          s.FindNearestHubsInput, t.find_nearest_hubs),

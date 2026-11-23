@@ -22,7 +22,8 @@ from app.api.guards import DailyBudget, RateLimiter, code_matches
 from app.config import REPO_ROOT, get_settings
 from app.db import get_connection
 from app.tools import schemas as s
-from app.tools.hub_tools import get_hub_risk_breakdown, get_methodology, list_hubs, rank_hubs
+from app.tools.hub_tools import (get_hub_risk_breakdown, get_methodology, get_seasonal_outlook, list_hubs,
+                                 rank_hubs)
 from app.tools.locate import find_nearest_hubs
 
 log = logging.getLogger("api")
@@ -164,6 +165,17 @@ def breakdown(hub_id: str) -> dict:
     except ValueError as e:
         raise HTTPException(404, f"Unknown hub '{hub_id}'") from e
     return _tool(get_hub_risk_breakdown, args)
+
+
+@app.get("/api/outlook", dependencies=[Depends(require_access)], tags=["data"])
+def outlook(month: int | None = Query(None), region: str | None = Query(None),
+            top_n: int | None = Query(None)) -> dict:
+    """Seasonal outlook for a calendar month (default: current month). Historical frequency, not a forecast."""
+    try:
+        args = s.SeasonalOutlookInput(month=month, region=region, top_n=top_n)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return _tool(get_seasonal_outlook, args)
 
 
 @app.get("/api/methodology", dependencies=[Depends(require_access)], tags=["data"])

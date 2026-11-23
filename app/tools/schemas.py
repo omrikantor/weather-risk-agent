@@ -111,5 +111,25 @@ class MethodologyInput(_Strict):
     pass
 
 
+class SeasonalOutlookInput(_Strict):
+    month: int | None = Field(description="Calendar month 1-12, or null for the current month.")
+    region: Region | None = Field(description="US Census region filter, or null for all hubs.")
+    top_n: int | None = Field(description="How many hubs to return (1-47), or null for 5.")
+
+    @field_validator("month")
+    @classmethod
+    def _month(cls, v):
+        if v is not None and not 1 <= v <= 12:
+            raise ValueError("month must be 1-12")
+        return v
+
+    @field_validator("top_n")
+    @classmethod
+    def _top(cls, v):
+        if v is not None and not 1 <= v <= 47:
+            raise ValueError("top_n must be between 1 and 47")
+        return v
+
+
 class FindNearestHubsInput(_Strict):
     location: str = Field(description="A US place that is not one of our hubs, e.g. 'Tampa, FL' or 'Spokane'.")

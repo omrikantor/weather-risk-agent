@@ -17,7 +17,7 @@ import argparse
 from app.config import get_settings
 from app.db import create_schema, get_connection
 from app.ingest import census_gazetteer, fema_nri, ghcn, hubs, hurdat2, nws_warnings, open_meteo, spc_reports
-from app.scoring import engine, event_rates
+from app.scoring import engine, event_rates, seasonal
 
 STEPS = ["hubs", "nri", "census", "weather", "hurdat2", "spc", "ghcn", "warnings", "rates", "score"]
 
@@ -98,6 +98,7 @@ def main() -> None:
         print("Scoring")
         df = engine.score_all(conn)
         print(f"  scored {len(df)} hubs; top 5: {list(df.index[:5])}")
+        print(f"  seasonal outlook: {seasonal.compute(conn)}")
 
     summarize(conn)
     conn.close()

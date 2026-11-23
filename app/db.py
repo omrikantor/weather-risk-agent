@@ -160,6 +160,23 @@ CREATE TABLE IF NOT EXISTS fema_declarations (
     PRIMARY KEY (disaster_number, county_fips)
 );
 
+-- Seasonal (climatological) outlook: per hub x hazard x calendar month, from NWS warning days
+-- 2006-2025 (and HURDAT2 storm days 1950-2025 for hurricanes). Historical frequency, not a forecast.
+CREATE TABLE IF NOT EXISTS hub_monthly (
+    hub_id          TEXT NOT NULL,
+    hazard          TEXT NOT NULL,
+    month           INTEGER NOT NULL,      -- 1-12
+    years           INTEGER NOT NULL,      -- years observed (warning archive)
+    years_with_warning INTEGER NOT NULL,   -- years with >= 1 warning day in this month
+    p_warning       REAL NOT NULL,         -- years_with_warning / years
+    p_lo            REAL NOT NULL,         -- exact binomial 90% interval
+    p_hi            REAL NOT NULL,
+    mean_warning_days REAL NOT NULL,       -- average warning days in this month
+    severe_days     REAL NOT NULL,         -- mean_warning_days x the hazard's severity share
+    longrecord_p    REAL,                  -- hurricanes: share of years 1950-2025 with a storm day this month
+    PRIMARY KEY (hub_id, hazard, month)
+);
+
 CREATE TABLE IF NOT EXISTS hub_metrics (
     hub_id        TEXT NOT NULL,
     metric        TEXT NOT NULL,

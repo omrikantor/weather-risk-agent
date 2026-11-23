@@ -201,6 +201,9 @@ def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
                         "WHERE county_fips=? ORDER BY begin_date DESC LIMIT 8", (fips,)).fetchall()
     st = d["station"]
     ranges = [severe_range(d["hazards"][h]) for h in HAZARDS]
+    monthly = [r[0] for r in conn.execute("SELECT SUM(severe_days) FROM hub_monthly WHERE hub_id=? GROUP BY month "
+                                          "ORDER BY month", (hub,)).fetchall()]
+    peak = max(range(len(monthly)), key=lambda i: monthly[i]) if monthly else None
     return {
         "hub_id": hub, "name": name, "state": state, "region": region,
         "rank": d["rank"], "of": d["of"], "tier": d["tier"],
@@ -214,6 +217,8 @@ def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
                            "warning_days_per_year": _r(c["warning_days_per_year"]),
                            "severity_share": _r(c["severity_share"], 3)} for c in d["contributions"]],
         "hazards": {h: _hazard_summary(d, h) for h in HAZARDS},
+        "monthly_severe_days_jan_to_dec": [_r(v, 3) for v in monthly],
+        "peak_month": MONTHS[peak] if peak is not None else None,
         "recent_fema_major_disasters_in_county": [
             {"title": t, "type": ty, "begin": b, "end": e} for t, ty, b, e in decl],
         "station": {"id": st["station_id"], "name": st["station_name"], "distance_km": st["distance_km"],
@@ -367,6 +372,66 @@ def get_methodology(args: s.MethodologyInput, conn) -> dict:
         ],
         "params_version": p["params_version"], "scoring_version": d.get("scoring_version"),
     }
+
+
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December"]
+HAZARD_LABELS = {"winter": "winter storms / ice", "flood": "flooding", "convective": "severe thunderstorms / wind",
+                 "hurricane": "hurricanes / tropical storms", "heat": "extreme heat"}
+
+
+@_with_conn
+def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
+    """Which hubs historically face the most disruption in a given calendar month, and why."""
+    month = args.month or date.today().month
+    q = ("SELECT m.*, h.name, h.state, h.region, h.county_fips FROM hub_monthly m JOIN hubs h ON h.id = m.hub_id "
+         "WHERE m.month = ?" + (" AND h.region = ?" if args.region else ""))
+    df = pd.read_sql(q, conn, params=(month, args.region) if args.region else (month,))
+    totals = df.groupby("hub_id")["severe_days"].sum().round(6)
+    rank = totals.rank(ascending=False, method="min").astype(int)
+    order = sorted(totals.index, key=lambda h: (rank[h], h))[: (args.top_n or 5)]
+    decl = pd.read_sql("SELECT county_fips, title, incident_type, begin_date FROM fema_declarations", conn)
+    decl = decl[decl["begin_date"].str[5:7] == f"{month:02d}"].sort_values("begin_date", ascending=False)
+
+    hubs = []
+    for hub in order:
+        rows = df[df["hub_id"] == hub].set_index("hazard")
+        top = rows["severe_days"].idxmax() if rows["severe_days"].max() > 0 else rows["mean_warning_days"].idxmax()
+        t = rows.loc[top]
+        other = [{"hazard": z, "p_at_least_one_warning_day": _r(rows.loc[z, "p_warning"], 2)}
+                 for z in rows.index if z != top and rows.loc[z, "p_warning"] >= 0.3]
+        past = decl[decl["county_fips"] == t["county_fips"]].head(3)
+        item = {
+            "rank": int(rank[hub]), "hub_id": hub, "name": t["name"], "state": t["state"], "region": t["region"],
+            "expected_severe_days_this_month": _r(totals[hub], 3),
+            "top_hazard": top, "top_hazard_label": HAZARD_LABELS[top],
+            "p_at_least_one_warning_day": _r(t["p_warning"], 2),
+            "p_range_90pct": [_r(t["p_lo"], 2), _r(t["p_hi"], 2)],
+            "years_with_warning": int(t["years_with_warning"]), "years_observed": int(t["years"]),
+            "avg_warning_days_this_month": _r(t["mean_warning_days"], 2),
+            "other_likely_hazards": other,
+            "past_fema_disasters_this_month": [{"title": r.title, "type": r.incident_type, "year": r.begin_date[:4]}
+                                               for r in past.itertuples()],
+        }
+        if top == "hurricane" and pd.notna(t["longrecord_p"]):
+            item["p_storm_within_150km_1950_2025"] = _r(t["longrecord_p"], 2)
+        hubs.append(item)
+
+    summary = {}
+    for z in HAZARDS:
+        zr = df[df["hazard"] == z]
+        likely = zr[zr["p_warning"] >= 0.5]
+        best = zr.sort_values(["p_warning", "hub_id"], ascending=[False, True]).head(1)
+        summary[z] = {"hubs_with_warning_in_most_years": int(len(likely)),
+                      "most_frequent_hub": None if best.empty or best["p_warning"].iloc[0] == 0 else best["hub_id"].iloc[0],
+                      "its_p": None if best.empty else _r(best["p_warning"].iloc[0], 2)}
+    return {"month": month, "month_name": MONTHS[month - 1], "region": args.region, "hubs": hubs,
+            "hazard_summary": summary,
+            "definition": "p_at_least_one_warning_day = share of years 2006-2025 in which the hub had at least one "
+                          "NWS warning day for the hazard in this month; expected_severe_days_this_month = average "
+                          "warning days in this month x the hazard's FEMA severity share, summed over hazards.",
+            "note": "Historical frequency (climatology), not a forecast.",
+            "source": SOURCES}
 
 
 def find_nearest_hubs(args: s.FindNearestHubsInput, conn=None) -> dict:
