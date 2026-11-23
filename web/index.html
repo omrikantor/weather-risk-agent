@@ -19,7 +19,7 @@
       <div>Weather Risk Agent<small>Hub disruption intelligence</small></div>
     </div>
     <div class="spacer"></div>
-    <div class="status" id="status" title="Service status"><span class="dot" id="status-dot"></span><span class="label" id="status-text">Connecting…</span></div>
+    <div class="status" id="status" title="Service status"><span class="dot" id="status-dot"></span><span class="label" id="status-text">Connecting</span></div>
     <button class="btn ghost mobile-only" id="board-toggle" aria-label="Show leaderboard">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span class="hide-sm">Leaderboard</span></button>
     <button class="btn ghost" id="method-btn">
@@ -38,11 +38,11 @@
               <div>
                 <div class="eyebrow">Seasonal outlook</div>
                 <h2 id="outlook-title">Where disruption usually hits this month</h2>
-                <div class="outlook-sub" id="outlook-sub">Historical frequency 2006–2025 · not a forecast</div>
+                <div class="outlook-sub" id="outlook-sub">Historical frequency, 2006 to 2025. Not a forecast.</div>
               </div>
               <div class="month-nav">
                 <button class="btn icon-btn" id="m-prev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-                <span class="label" id="m-label">—</span>
+                <span class="label" id="m-label"></span>
                 <button class="btn icon-btn" id="m-next" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg></button>
                 <button class="btn ghost icon-btn" id="outlook-toggle" aria-label="Collapse outlook" title="Collapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 15l-6-6-6 6"/></svg></button>
               </div>
@@ -65,11 +65,11 @@
       <div class="composer-wrap">
         <form class="composer" id="composer">
           <label for="input" class="sr-only">Ask a question</label>
-          <textarea id="input" rows="1" placeholder="Ask about hub risk, comparisons, statistics…" autocomplete="off"></textarea>
+          <textarea id="input" rows="1" placeholder="Ask about hub risk, comparisons or statistics" autocomplete="off"></textarea>
           <button class="btn primary" type="submit" id="send" aria-label="Send">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
         </form>
-        <div class="composer-hint">Enter to send · Shift+Enter for a new line · Answers can take 10–20 seconds</div>
+        <div class="composer-hint">Enter to send · Shift+Enter for a new line · Answers can take 10 to 20 seconds</div>
       </div>
     </main>
 

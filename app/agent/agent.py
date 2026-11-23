@@ -13,6 +13,7 @@ from app.agent.answer_schema import FinalAnswer, final_answer_schema
 from app.agent.llm_client import LLMClient, Usage, tool_output_item
 from app.agent.prompts import SYSTEM_PROMPT, date_message
 from app.agent.sessions import SessionStore
+from app.agent.textclean import clean_answer
 from app.agent.validator import validate
 from app.config import get_settings
 from app.tools.registry import execute, openai_tools
@@ -103,8 +104,8 @@ class Agent:
             if v.ok or retried:
                 warnings = v.problems
                 if v.answer:
-                    # Provenance is built by code, not by the model.
-                    answer = {**v.answer.model_dump(mode="json"), "figures": v.figures,
+                    # Provenance is built by code, not by the model; text is cleaned deterministically.
+                    answer = {**clean_answer(v.answer.model_dump(mode="json")), "figures": v.figures,
                               "data_sources": v.data_sources}
                 else:
                     answer = _fallback_answer("I couldn't produce a well-formed answer; please rephrase the question.")

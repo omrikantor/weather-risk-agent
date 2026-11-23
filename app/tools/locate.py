@@ -123,7 +123,12 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
     db_path = conn.execute("PRAGMA database_list").fetchone()[2]
     try:
         name, state = split_state(location)
-        result = {"query": location, "parsed": {"name": name, "state": state}}
+        alias = sp.get("place_aliases", {}).get(name) or sp.get("place_aliases", {}).get(normalize(location))
+        note = None
+        if alias and state in (None, split_state(alias)[1]):
+            note = f"interpreted '{location}' as {alias}"
+            name, state = split_state(alias)
+        result = {"query": location, "parsed": {"name": name, "state": state}, **({"note": note} if note else {})}
 
         hubs = _hubs(conn)
         places, exact, alias = _place_index(db_path)
@@ -178,6 +183,14 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
         prof, hazards = _profiles(db_path)
         d = haversine_km(place["lat"], place["lon"], hubs["lat"].to_numpy(), hubs["lon"].to_numpy())
         near = hubs.assign(distance_km=d).sort_values(["distance_km", "id"]).head(sp["candidates"])
+        if near["distance_km"].iloc[0] > sp["coverage_max_km"]:
+            n0 = near.iloc[0]
+            return {**result, "status": "outside_coverage",
+                    "place": {"name": place["full_name"], "state": place["state"]},
+                    "nearest_hub": {"hub_id": n0["id"], "hub_name": n0["name"],
+                                    "distance_km": round(float(n0["distance_km"]))},
+                    "message": "This place is outside the hub network's coverage (the nearest hub is more than "
+                               f"{sp['coverage_max_km']} km away), so no hub is a meaningful stand-in."}
         p_vec = prof.loc[place["county_fips"]] if place["county_fips"] in prof.index else None
 
         candidates = []

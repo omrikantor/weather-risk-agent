@@ -59,14 +59,14 @@ function el(tag, attrs = {}, ...children) {
 }
 /* replaceChildren() would render null/false as text; skip them. */
 function fill(node, ...kids) { node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false)); }
-const fmt = (v, d = 2) => (v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }));
+const fmt = (v, d = 2) => (v == null ? "n/a" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }));
 /* 0.36 -> "once every 2.8 yrs"; 1.4 -> "1.4 days/yr". */
 function oncePer(v) {
   if (!v) return "none in the data";
   return v < 1 ? `once every ${fmt(1 / v, 1)} yrs` : `${fmt(v)} days/yr`;
 }
 function monthYear(iso) { const [y, m] = iso.split("-"); return `${MONTHS[+m - 1].slice(0, 3)} ${y}`; }
-const pct = (v) => (v == null ? "–" : `${Math.round(v * 100)}%`);
+const pct = (v) => (v == null ? "n/a" : `${Math.round(v * 100)}%`);
 function hzChip(h, text) { return el("span", { class: `hz-chip hz-${h}`, html: ICON[h] }, text || HAZARDS[h].label); }
 function renderMarkdown(md) {
   const html = DOMPurify.sanitize(marked.parse(md || "", { gfm: true, breaks: false }));
@@ -234,7 +234,7 @@ function renderHub(d) {
           title: `${pct(hz.severity_share)} of warning days for this hazard were part of a federally declared disaster` },
           `${fmt(hz.warning_days_per_year, 1)} warning days/yr · disaster-level ${oncePer(hz.severe_days_per_year)}`)),
       s ? el("div", { class: "season" },
-        el("div", {}, el("span", { class: "faint" }, "When "), el("b", {}, s.typical_dates.replace(" - ", " – ")),
+        el("div", {}, el("span", { class: "faint" }, "When "), el("b", {}, s.typical_dates.replace(" - ", " to ")),
           el("span", { class: "faint" }, ` · peak ${s.peak_month}`)),
         el("div", {}, el("b", {}, `~${fmt(s.events_per_year, 1)}`), el("span", { class: "faint" }, " events/yr · usually "),
           el("b", {}, `${s.typical_event_days} day${s.typical_event_days === 1 ? "" : "s"}`),
@@ -249,7 +249,7 @@ function renderHub(d) {
   fill($("drawer-body"),
     el("div", { class: "kpis" },
       el("div", { class: "kpi" }, el("div", { class: "v" }, `#${d.rank}`), el("div", { class: "l" }, `of ${d.of} hubs`)),
-      el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(total)), el("div", { class: "l" }, `disaster-level days / yr (likely ${fmt(d.severe_days_range_90pct[0])}–${fmt(d.severe_days_range_90pct[1])})`)),
+      el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(total)), el("div", { class: "l" }, `disaster-level days / yr (likely ${fmt(d.severe_days_range_90pct[0])} to ${fmt(d.severe_days_range_90pct[1])})`)),
       el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(d.routine_days_per_year, 1)), el("div", { class: "l" }, "warning days / yr"))),
     el("div", { class: "block" }, el("h4", {}, "What drives the score"),
       el("div", { class: "stack" }, ...contrib.filter((c) => c.severe_days_per_year > 0).map((c) =>
@@ -306,7 +306,7 @@ $("method-btn").addEventListener("click", async () => {
     const shareMax = Math.max(...Object.values(m.severity_shares).map((s) => s.share), 0.0001);
     fill(body,
       el("div", { class: "block" }, el("h4", {}, "Key measures"),
-        ...Object.entries(m.kpis).map(([k, v]) => el("p", { style: "margin:0 0 8px" }, el("strong", {}, MEASURE[k] || k), " — ", v))),
+        ...Object.entries(m.kpis).map(([k, v]) => el("p", { style: "margin:0 0 8px" }, el("strong", {}, MEASURE[k] || k), ": ", v))),
       el("div", { class: "block" }, el("h4", {}, "Severity share by hazard (share of warning days inside a FEMA major disaster)"),
         ...Object.entries(m.severity_shares).map(([z, s]) => el("div", { class: `share-row hz-${z}` },
           el("span", {}, HAZARDS[z].label), el("span", { class: "share-bar" }, el("span", { style: `width:${(s.share / shareMax) * 100}%` })),
@@ -316,7 +316,7 @@ $("method-btn").addEventListener("click", async () => {
         el("ul", { class: "muted" }, ...m.assumptions_and_limitations.map((x) => el("li", {}, x)))),
       el("label", { class: "dev-toggle" },
         el("input", { type: "checkbox", ...(state.dev ? { checked: true } : {}), onchange: (e) => setDev(e.target.checked) }),
-        el("span", {}, "Show technical details on new answers (tool calls, number tracing, cost) — for developers")),
+        el("span", {}, "Show technical details on new answers (tool calls, number tracing, cost). For developers.")),
       ...(state.dev ? [el("p", { class: "faint", style: "font-size:12px;margin:8px 0 0" },
         `Scoring ${m.scoring_version} · parameters ${m.params_version}`)] : []));
   } catch (err) { body.replaceChildren(el("div", { class: "muted" }, err.message)); }
@@ -344,7 +344,7 @@ async function ask(text) {
   const t0 = Date.now();
   const secs = el("span", { class: "num" }, "0s");
   const thinking = el("div", { class: "card thinking" }, el("div", { class: "pulse" }, el("span"), el("span"), el("span")),
-    el("span", {}, "Analyzing — choosing tools, querying data, verifying every number… "), secs);
+    el("span", {}, "Working on your answer. This usually takes 10 to 20 seconds. "), secs);
   const timer = setInterval(() => { secs.textContent = `${Math.round((Date.now() - t0) / 1000)}s`; }, 500);
   $("thread").append(thinking); scrollToBottom();
   try {
@@ -433,7 +433,7 @@ function provenance(r) {
     el("span", {}, el("b", {}, t.tool), "(", Object.entries(t.arguments || {}).filter(([, v]) => v != null)
       .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", "), ")"),
     el("span", { class: "faint" }, t.error ? `error: ${t.error}` : `${t.ms} ms`)))
-    : [el("div", { class: "faint", style: "font-size:13px" }, "No tools needed — answered from the conversation so far.")];
+    : [el("div", { class: "faint", style: "font-size:13px" }, "No tools needed. Answered from the conversation so far.")];
   const figs = a.figures || [];
   return el("details", { class: "prov dev" },
     el("summary", { html: CHEVRON }, `Technical details · ${r.trace.length} tool call${r.trace.length === 1 ? "" : "s"} · ${figs.length} number${figs.length === 1 ? "" : "s"} traced`),
@@ -462,7 +462,7 @@ input.addEventListener("input", () => {
   input.style.height = Math.min(input.scrollHeight, 160) + "px";
   input.style.overflowY = input.scrollHeight > 160 ? "auto" : "hidden";
 });
-if (window.matchMedia("(max-width: 640px)").matches) input.placeholder = "Ask about hub risk…";
+if (window.matchMedia("(max-width: 640px)").matches) input.placeholder = "Ask about hub risk";
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); } });
 $("composer").addEventListener("submit", (e) => { e.preventDefault(); const t = input.value; input.value = ""; input.style.height = "auto"; ask(t); });
 $("new-chat").addEventListener("click", async () => {

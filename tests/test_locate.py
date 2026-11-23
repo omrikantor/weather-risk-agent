@@ -69,9 +69,27 @@ def test_unknown_place():
     assert find_nearest_hubs("Xyzzyville")["status"] == "not_found"
 
 
-def test_far_place_gets_caveat():
-    r = find_nearest_hubs("Honolulu")
+@pytest.mark.parametrize("q", ["Honolulu", "Anchorage", "San Juan, PR"])
+def test_places_outside_the_network_get_no_stand_in(q):
+    r = find_nearest_hubs(q)
+    assert r["status"] == "outside_coverage" and "recommended_hub_id" not in r
+
+
+def test_far_mainland_place_gets_caveat():
+    r = find_nearest_hubs("Rapid City")
     assert r["status"] == "matched" and r["far_away"] is True
+
+
+@pytest.mark.parametrize("q", ["Brooklyn", "Queens", "NYC", "Washington DC"])
+def test_aliases_for_non_census_places(q):
+    r = find_nearest_hubs(q)
+    assert r["status"] == "matched" and "interpreted" in r["note"]
+    assert r["place"]["state"] in ("NY", "DC")
+
+
+def test_brooklyn_with_other_state_is_not_aliased():
+    r = find_nearest_hubs("Brooklyn, OH")
+    assert r["status"] == "matched" and r["place"]["state"] == "OH"
 
 
 @pytest.mark.parametrize("q", ["Tampa, FL", "Spokane, WA", "Tulsa", "Fort Worth"])
