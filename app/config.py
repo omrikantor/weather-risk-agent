@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_model: str = "gpt-6.2-sol"
     llm_reasoning_effort: str = "medium"
+    llm_max_output_tokens: int = 6000
+    agent_max_steps: int = 8
+    # USD per 1M tokens for cost tracking (OpenAI pricing page; update if prices change).
+    price_input_per_m: float = 2.00
+    price_cached_input_per_m: float = 0.10
+    price_output_per_m: float = 10.00
 
     # API protection
     app_access_code: str = "change-me"
