@@ -23,6 +23,7 @@ from app.scoring.params import get_params
 
 
 def hub_warning_dates(conn: sqlite3.Connection, hub_id: str) -> dict[str, set[str]]:
+    """Local dates with a warning at the hub, per hazard (same selection as the scoring engine)."""
     wp = get_params()["warnings"]
     ugc = conn.execute("SELECT ugc, timezone FROM hub_ugc WHERE hub_id=?", (hub_id,)).fetchall()
     codes = [u[0] for u in ugc] + [f"POINT:{hub_id}"]
@@ -34,11 +35,17 @@ def hub_warning_dates(conn: sqlite3.Connection, hub_id: str) -> dict[str, set[st
 def monthly_rows(hub_id: str, dates: dict[str, set[str]], shares: dict[str, float],
                  storm_dates: list[str], years: tuple[int, int], storm_years: tuple[int, int],
                  level: float) -> list[tuple]:
-    """Pure function: rows for hub_monthly from warning dates per hazard."""
+    """Pure function: rows for hub_monthly from warning dates per hazard.
+
+    For each hazard and month: k = number of years (out of n_years) with at least one warning day in that
+    month, the share k / n_years with an exact range, the average warning days in that month, and expected
+    disaster-level days (average warning days x severity share). Hurricanes also get the share of years since
+    1950 with a storm nearby in that month, because 20 years is short for a rare hazard.
+    """
     n_years = years[1] - years[0] + 1
     n_storm_years = storm_years[1] - storm_years[0] + 1
     storm_by_month = defaultdict(set)
-    for d in storm_dates:
+    for d in storm_dates:   # dates are YYYY-MM-DD text: d[:4] is the year, d[5:7] the month
         if storm_years[0] <= int(d[:4]) <= storm_years[1]:
             storm_by_month[int(d[5:7])].add(d[:4])
     rows = []
@@ -76,6 +83,8 @@ def season_profile(dates: set[str], n_years: int) -> dict | None:
     for d in ds:
         counts[d.month - 1] += 1
     total = len(ds)
+    # Try windows of 1 month, then 2, and so on; the first length that reaches the coverage wins, and among
+    # windows of that length the one holding the most warning days is chosen.
     best = None
     for length in range(1, 13):
         for start in range(12):
@@ -86,14 +95,16 @@ def season_profile(dates: set[str], n_years: int) -> dict | None:
             break
     start, length, covered = best
     months = [(start + i) % 12 for i in range(length)]
-    # Typical date range: day offset from the window start, so a Nov-Mar window doesn't break at New Year.
+    # Typical date range: count days from the window start, so a November to March window does not break at
+    # New Year. Every date is moved to the same non-leap year (2001) so day numbers are comparable.
     start_doy = pd.Timestamp(2001, start + 1, 1).day_of_year
     offsets = sorted(((d.replace(year=2001) if not (d.month == 2 and d.day == 29) else d.replace(year=2001, day=28))
                       .day_of_year - start_doy) % 365 for d in ds if d.month - 1 in months)
+    # 10th and 90th percentile dates: the central 80% of warning days, ignoring rare very early or late ones.
     lo = offsets[int(0.1 * (len(offsets) - 1))]
     hi = offsets[int(round(0.9 * (len(offsets) - 1)))]
     to_md = lambda off: (pd.Timestamp(2001, 1, 1) + pd.Timedelta(days=(start_doy - 1 + off) % 365)).strftime("%b %d")  # noqa: E731
-    # Events: runs of consecutive days.
+    # Events: runs of consecutive warning days. A 3-day blizzard warning is one event lasting 3 days.
     events, run_start, prev = [], ds[0], ds[0]
     for d in ds[1:]:
         if (d - prev).days > 1:
@@ -117,6 +128,7 @@ def season_profile(dates: set[str], n_years: int) -> dict | None:
 
 
 def compute(conn: sqlite3.Connection) -> dict:
+    """Rebuild hub_monthly and hub_hazard_season. Runs after scoring, because it uses the severity shares."""
     p = get_params()
     wp, hp = p["warnings"], p["event_rates"]["hurricane"]
     radius = p["event_rates"]["default_radius_km"]["hurricane"]

@@ -12,6 +12,7 @@ from app.agent.agent import Agent
 
 
 def show(result, trace: bool) -> None:
+    """Print an answer; with trace, also the tool calls, tokens, cost and where each number came from."""
     a = result.answer
     print("\n" + a["answer_markdown"])
     if result.validation_warnings:
@@ -34,6 +35,7 @@ def show(result, trace: bool) -> None:
 
 
 def main() -> None:
+    """Ask one question, or chat interactively until an empty line, "exit" or "quit"."""
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("question", nargs="?")

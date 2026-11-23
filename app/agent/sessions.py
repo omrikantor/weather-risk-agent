@@ -10,13 +10,14 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-TTL_SECONDS = 2 * 60 * 60
-KEEP_FULL_TURNS = 3
+TTL_SECONDS = 2 * 60 * 60    # a conversation unused for 2 hours is forgotten
+KEEP_FULL_TURNS = 3          # tool outputs of the last 3 turns are sent to the model in full
 TRIMMED = '{"trimmed": "older tool output removed to save context; call the tool again if needed"}'
 
 
 @dataclass
 class Session:
+    """One conversation."""
     id: str
     items: list[dict] = field(default_factory=list)          # conversation sent to the model
     turn_starts: list[int] = field(default_factory=list)     # index in items where each turn starts
@@ -24,6 +25,7 @@ class Session:
     last_used: float = field(default_factory=time.time)
 
     def start_turn(self) -> None:
+        """Mark where a new turn begins, so trim() knows which outputs are old."""
         self.turn_starts.append(len(self.items))
         self.last_used = time.time()
 
@@ -38,12 +40,18 @@ class Session:
 
 
 class SessionStore:
+    """All conversations of this server process. Memory only: a restart starts every conversation fresh.
+
+    A lock protects the dictionary because the API serves requests on several threads.
+    """
+
     def __init__(self, ttl: int = TTL_SECONDS):
         self.ttl = ttl
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
 
     def get_or_create(self, session_id: str | None) -> Session:
+        """Return the conversation with this id, or start a new one (also when the id has expired)."""
         with self._lock:
             self._expire()
             if session_id and session_id in self._sessions:
@@ -53,10 +61,12 @@ class SessionStore:
             return s
 
     def reset(self, session_id: str) -> None:
+        """Forget a conversation (the New chat button)."""
         with self._lock:
             self._sessions.pop(session_id, None)
 
     def _expire(self) -> None:
+        """Drop conversations unused for longer than the time limit."""
         now = time.time()
         for sid in [k for k, s in self._sessions.items() if now - s.last_used > self.ttl]:
             del self._sessions[sid]

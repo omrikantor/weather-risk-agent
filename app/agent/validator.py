@@ -1,13 +1,13 @@
 """Deterministic answer checks ("critic as code") and code-built provenance.
 
 The model returns only the answer text and a few structured fields. Code then:
-- traces every number in answer_markdown to the tool-result field it came from (allowing
-  display rounding and a share shown as a percent) -> `figures`;
+- traces every number in answer_markdown to the tool-result field it came from (allowing display rounding
+  and a share shown as a percent) and returns the list as `figures`;
 - derives `data_sources` from the tools actually called.
 
 Problems (trigger one retry, then are returned as visible warnings):
 - answer doesn't parse into FinalAnswer
-- a number in the answer isn't traceable to tool results / the user's question
+- a number in the answer is not found in any tool result or in the user's question
 - a hub's stated rank differs from the rank tools reported
 - a stand-in was recommended but the answer doesn't ask for confirmation (and no stand-in analysis was run)
 """
@@ -21,8 +21,10 @@ from pydantic import ValidationError
 from app.agent.answer_schema import FinalAnswer
 
 # A number not preceded by a letter, digit or dot (underscores count as separators: "within_150km").
+# The first alternative reads numbers with thousands separators ("2,271") as one number.
 NUM_RE = re.compile(r"(?<![A-Za-z0-9.])[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?|(?<![A-Za-z0-9.])[-+]?\d+(?:\.\d+)?")
-SMALL_INT_MAX = 10          # small integers in prose ("top 3", "2 hubs") aren't checked
+SMALL_INT_MAX = 10          # small integers in prose ("top 3", "2 hubs") are not checked
+# Tools that analyze a hub. If one ran after a stand-in recommendation, the user has already confirmed.
 ANALYSIS_TOOLS = {"get_hub_risk_breakdown", "compare_hubs", "rank_hubs", "get_weather_stat"}
 TOOL_SOURCES = {             # sources for tools whose output has no explicit "source" field
     "list_hubs": "Hub network and US Census regions (prototype assumption)",
@@ -33,6 +35,7 @@ TOOL_SOURCES = {             # sources for tools whose output has no explicit "s
 
 @dataclass
 class Validation:
+    """Result of the checks: ok, the problems found, the parsed answer and the code-built provenance."""
     ok: bool
     problems: list[str] = field(default_factory=list)
     answer: FinalAnswer | None = None
@@ -71,10 +74,16 @@ def flatten_numbers(obj, path: str = "") -> list[tuple[str, float]]:
 
 
 def collect_numbers(obj) -> set[float]:
+    """All numbers in a JSON-like object, without their paths."""
     return {v for _, v in flatten_numbers(obj)}
 
 
 def _matches(value: float, decimals: int, number: float) -> str | None:
+    """Does a number written with `decimals` decimals in the answer match a tool number?
+
+    The tolerance is half of the last written digit, so 1.9 matches 1.91 (rounded for display) but not 2.06.
+    A share such as 0.25 also matches 25 (written as a percentage).
+    """
     tol = 0.5 * 10 ** (-decimals) + 1e-9
     if abs(value - number) <= tol:
         return "exact or rounded"
@@ -84,6 +93,7 @@ def _matches(value: float, decimals: int, number: float) -> str | None:
 
 
 def traceable(value: float, decimals: int, pool: set[float]) -> bool:
+    """True if the value matches any number in the pool."""
     return any(_matches(value, decimals, p) for p in pool)
 
 
@@ -98,7 +108,7 @@ def trace_figures(text: str, tool_outputs: list[tuple[str, dict]], user_text: st
     figures, untraced = [], []
     for raw, value, dec, pos in numbers_in_text(text):
         if dec == 0 and (abs(value) <= SMALL_INT_MAX or 1900 <= value <= 2100):
-            continue                                            # small counts / ordinals, years
+            continue                                            # small counts, ordinals and years
         context = text[max(0, pos - 60): pos + len(raw) + 20].replace("\n", " ").replace("**", "")
         # Prefer a direct (exact/rounded) match anywhere over a share-shown-as-percent match,
         # e.g. "3.6 heat warning days" must not be attributed to a 0.036 share.
@@ -108,7 +118,7 @@ def trace_figures(text: str, tool_outputs: list[tuple[str, dict]], user_text: st
             n, p, v, how = hit
             figures.append({"value_in_answer": raw, "context": context.strip(), "source_tool": n,
                             "field": p, "tool_value": v, "match": how})
-        elif any(_matches(value, dec, u) for u in user_numbers):
+        elif any(_matches(value, dec, u) for u in user_numbers):   # repeating the user's own number is fine
             figures.append({"value_in_answer": raw, "context": context.strip(), "source_tool": "user question",
                             "field": None, "tool_value": value, "match": "from the question"})
         else:
@@ -117,6 +127,7 @@ def trace_figures(text: str, tool_outputs: list[tuple[str, dict]], user_text: st
 
 
 def data_sources(turn_tools: list[tuple[str, dict]]) -> list[str]:
+    """Distinct source lines of the tools called this turn, in call order."""
     seen: list[str] = []
     for name, out in turn_tools:
         found = [out[k] for k in ("source", "evidence_sources") if isinstance(out.get(k), str)]
@@ -128,8 +139,11 @@ def data_sources(turn_tools: list[tuple[str, dict]]) -> list[str]:
 
 def validate(raw_text: str | None, session_tools: list[tuple[str, dict]], user_text: str,
              turn_tools: list[tuple[str, dict]]) -> Validation:
-    """session_tools: all (tool, output) pairs this session (for tracing numbers);
-    turn_tools: (tool, output) pairs from the current turn (for rank / stand-in checks and sources)."""
+    """Run all checks on the model's raw final text.
+
+    session_tools: all (tool, output) pairs this session, used for tracing numbers.
+    turn_tools: (tool, output) pairs from the current turn, used for the rank and stand-in checks and sources.
+    """
     try:
         answer = FinalAnswer.model_validate(json.loads(raw_text or ""))
     except (json.JSONDecodeError, ValidationError) as e:
@@ -141,6 +155,7 @@ def validate(raw_text: str | None, session_tools: list[tuple[str, dict]], user_t
         problems.append(f"the number {raw} in the answer is not in any tool result (don't compute or estimate "
                         f"numbers; quote tool values or describe in words)")
 
+    # Ranks each hub was given by tools this turn; a hub can have several (overall rank, rank within a region).
     ranks: dict[str, set[int]] = {}
     for name, out in turn_tools:
         if name == "rank_hubs":
@@ -155,6 +170,7 @@ def validate(raw_text: str | None, session_tools: list[tuple[str, dict]], user_t
         if h.rank is not None and h.hub_id.value in ranks and h.rank not in ranks[h.hub_id.value]:
             problems.append(f"{h.hub_id.value} is given rank {h.rank} but tools reported {sorted(ranks[h.hub_id.value])}")
 
+    # Stand-in rule: after recommending a stand-in hub, the answer must ask before analyzing it.
     names = {n for n, _ in turn_tools}
     stand_in = any(n == "find_nearest_hubs" and o.get("status") == "matched" for n, o in turn_tools)
     if stand_in and not answer.awaiting_user_confirmation and not (names & ANALYSIS_TOOLS):

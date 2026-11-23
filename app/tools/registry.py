@@ -1,7 +1,8 @@
-"""Tool registry: OpenAI strict function schemas + validated execution.
+"""Tool registry: the list of tools, their strict JSON schemas, and validated execution.
 
-The same functions are exposed to the chat agent (OpenAI function calling) and, later, to the
-MCP server, so there is one implementation of every tool.
+The chat agent calls tools through execute(), and the API's data endpoints call the same tool functions
+directly, so the numbers in the leaderboard and in chat answers come from one implementation. An MCP server
+(future work) would wrap this same registry.
 """
 
 import copy
@@ -17,6 +18,7 @@ from app.tools import schemas as s
 
 @dataclass(frozen=True)
 class Tool:
+    """One tool: its name and description (shown to the model), its input model and the function to run."""
     name: str
     description: str
     input_model: type[BaseModel]
@@ -46,12 +48,17 @@ TOOLS: dict[str, Tool] = {tool.name: tool for tool in [
          s.FindNearestHubsInput, t.find_nearest_hubs),
 ]}
 
+# JSON schema keywords that OpenAI strict mode does not accept. The limits they express (for example top_n
+# between 1 and 47) are still enforced, because Pydantic validates every call in execute().
 _DROP_KEYS = {"title", "default", "format", "minItems", "maxItems", "minimum", "maximum"}
 
 
 def strict_schema(model: type[BaseModel]) -> dict:
-    """Pydantic JSON schema -> OpenAI strict schema: refs inlined, every property required,
-    no additional properties, unsupported keywords removed (Pydantic still validates them)."""
+    """Convert a Pydantic JSON schema into an OpenAI strict schema.
+
+    Strict mode requires every property to be listed as required (optional values are expressed as nullable),
+    no additional properties, and no $ref links, so referenced definitions are copied inline.
+    """
     schema = model.model_json_schema()
     defs = schema.pop("$defs", {})
 
@@ -80,7 +87,11 @@ def openai_tools() -> list[dict]:
 
 
 def execute(name: str, arguments: str | dict, conn=None) -> dict:
-    """Validate arguments and run a tool. Errors are returned as data, never raised to the agent loop."""
+    """Validate arguments and run a tool. Errors are returned as data, never raised to the agent loop.
+
+    Returning errors as data lets the model read what was wrong (for example an invalid month) and call the
+    tool again with corrected arguments, instead of the whole answer failing.
+    """
     tool = TOOLS.get(name)
     if tool is None:
         return {"error": f"unknown tool '{name}'", "hint": f"available tools: {sorted(TOOLS)}"}

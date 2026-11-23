@@ -29,6 +29,7 @@ BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 
 def _download(url: str, refresh: bool) -> Path:
+    """Download one national report file (or use the cache) and return its local path."""
     path = get_settings().raw_dir / "spc" / url.rsplit("/", 1)[-1]
     if refresh or not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,6 +39,7 @@ def _download(url: str, refresh: bool) -> Path:
 
 
 def _read(path: Path) -> pd.DataFrame:
+    """Read a report file; some SPC files are zipped CSVs, others plain CSVs."""
     if path.suffix == ".zip":
         with zipfile.ZipFile(path) as z:
             return pd.read_csv(io.BytesIO(z.read(z.namelist()[0])), low_memory=False)
@@ -45,6 +47,7 @@ def _read(path: Path) -> pd.DataFrame:
 
 
 def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
+    """Replace severe_reports with qualifying reports near any hub, for each hazard file."""
     p = get_params()["event_rates"]
     cp = p["convective"]
     max_radius = max(p["radii_km"]["convective"])
@@ -56,8 +59,10 @@ def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
         df = _read(_download(url, refresh))
         df = df[(df["yr"] >= cp["first_year"]) & (df["yr"] <= cp["last_year"])]
         df = df[df["mag"] >= cp["min_magnitude"][hazard]]
+        # Tornado end points of 0 mean "not recorded"; for those, and for hail and wind, only the start counts.
         elat = df["elat"].where(df["elat"] != 0) if hazard == "tornado" else pd.Series(np.nan, index=df.index)
         elon = df["elon"].where(df["elon"] != 0) if hazard == "tornado" else pd.Series(np.nan, index=df.index)
+        # Keep a report if it lies within the largest radius of at least one hub (the rest are never used).
         near = np.zeros(len(df), dtype=bool)
         for lat, lon in hubs:
             near |= point_to_segment_km(lat, lon, df["slat"], df["slon"], elat, elon) <= max_radius

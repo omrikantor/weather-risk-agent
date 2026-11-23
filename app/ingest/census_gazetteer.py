@@ -22,7 +22,8 @@ BASE = f"https://www2.census.gov/geo/docs/maps-data/data/gazetteer/{YEAR}_Gazett
 PLACES_URL = f"{BASE}/{YEAR}_Gaz_place_national.zip"
 COUNTIES_URL = f"{BASE}/{YEAR}_Gaz_counties_national.zip"
 
-# Census place-name suffixes ("Tampa city", "Brandon CDP") -> stripped for matching.
+# Census place names carry a type suffix ("Tampa city", "Brandon CDP"). It is removed so users can type the
+# plain name. CDP means census-designated place: a named community without its own city government.
 SUFFIX_RE = re.compile(
     r"\s+(city and borough|consolidated government \(balance\)|metropolitan government \(balance\)|"
     r"unified government \(balance\)|metro government \(balance\)|\(balance\)|city|town|village|"
@@ -32,6 +33,7 @@ SUFFIX_RE = re.compile(
 
 
 def _download_table(url: str, cache_name: str, refresh: bool) -> pd.DataFrame:
+    """Download a zipped Gazetteer file (or use the cache) and read its text table."""
     cache = get_settings().raw_dir / cache_name
     if refresh or not cache.exists():
         with http_client() as c:
@@ -41,6 +43,7 @@ def _download_table(url: str, cache_name: str, refresh: bool) -> pd.DataFrame:
     with zipfile.ZipFile(cache) as z:
         name = next(n for n in z.namelist() if n.endswith(".txt"))
         raw = z.read(name).decode("latin-1")
+    # Recent Gazetteer files use "|" as the separator and older ones use tabs; detect from the header line.
     sep = "|" if raw.split("\n", 1)[0].count("|") > raw.split("\n", 1)[0].count("\t") else "\t"
     df = pd.read_csv(io.StringIO(raw), sep=sep, dtype=str)
     df.columns = [c.strip() for c in df.columns]
@@ -48,8 +51,8 @@ def _download_table(url: str, cache_name: str, refresh: bool) -> pd.DataFrame:
 
 
 def clean_place_name(name: str) -> str:
-    """'Tampa city' -> 'Tampa'; 'Kansas City city' -> 'Kansas City';
-    'Nashville-Davidson metropolitan government (balance)' -> 'Nashville-Davidson'.
+    """Remove the Census type suffix: 'Tampa city' becomes 'Tampa', 'Kansas City city' becomes 'Kansas City',
+    and 'Nashville-Davidson metropolitan government (balance)' becomes 'Nashville-Davidson'.
 
     Strip the Census suffix exactly once: repeating would turn 'Kansas City city' into 'Kansas'.
     """
@@ -57,7 +60,9 @@ def clean_place_name(name: str) -> str:
 
 
 def load_population(refresh: bool = False) -> dict[str, int]:
-    """Census city/town population estimates -> {7-digit place GEOID: latest estimate}.
+    """Census city and town population estimates as {7-digit place GEOID: latest estimate}.
+
+    Population is used to decide whether a place name is ambiguous (see find_nearest_hubs).
 
     Covers incorporated places (summary level 162); census-designated places (CDPs) have none.
     """
@@ -67,7 +72,7 @@ def load_population(refresh: bool = False) -> dict[str, int]:
         with http_client() as c:
             cache.write_bytes(get_with_retry(c, url).content)
     df = pd.read_csv(cache, dtype=str, encoding="latin-1")
-    df = df[df["SUMLEV"] == "162"]
+    df = df[df["SUMLEV"] == "162"]   # summary level 162 = incorporated place
     latest = sorted(c for c in df.columns if c.startswith("POPESTIMATE") and c[11:].isdigit())[-1]
     geoid = df["STATE"].str.zfill(2) + df["PLACE"].str.zfill(5)
     return dict(zip(geoid, pd.to_numeric(df[latest], errors="coerce")))
@@ -90,6 +95,7 @@ def nearest_county(places: pd.DataFrame, counties: pd.DataFrame) -> pd.Series:
 
 
 def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
+    """Rebuild the places table: name, state, coordinates, land area, population and approximate county."""
     cdf = _download_table(COUNTIES_URL, f"{YEAR}_Gaz_counties_national.zip", refresh)
     counties = pd.DataFrame({
         "county_fips": cdf["GEOID"].str.zfill(5),

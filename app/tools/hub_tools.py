@@ -1,6 +1,8 @@
-"""Deterministic tool functions the agent calls. Every number an answer uses comes from here.
+"""Deterministic tool functions. Every number in a chat answer, and on the leaderboard, comes from here.
 
-Each result carries `source`, data windows and `scoring_version` so answers can cite them.
+Each tool reads the latest scoring run from SQLite, never calls the language model, and returns plain JSON
+with the values, their 90% ranges, definitions, data sources and the scoring version, so the agent can explain
+a result and the validator can trace every number back to a field.
 """
 
 import json
@@ -16,6 +18,7 @@ from app.scoring.params import get_params
 from app.tools import schemas as s
 from app.tools.locate import find_nearest_hubs as _find_nearest_hubs
 
+# Plain-language definitions returned with results, so the model uses the same wording every time.
 KPI_DEFINITIONS = {
     "severe_disruption_days": "Disaster-level disruption days per year: expected days with an NWS warning that is "
                               "part of a federally declared major disaster (warning days x the hazard's FEMA severity "
@@ -27,14 +30,22 @@ KPI_DEFINITIONS = {
 
 
 def every_years(per_year) -> float | None:
-    """0.36 per year -> 2.8 ('about once every 2.8 years'); None when >= 1 or zero."""
+    """Rewrite a rare rate as a return period: 0.36 per year gives 2.8 ("about once every 2.8 years").
+
+    Returns None for rates of 1 or more (already easy to read) and for zero (never observed). Computing this in
+    code means the model never has to divide numbers itself.
+    """
     return round(1 / per_year, 1) if per_year and 0 < per_year < 1 else None
+
+
+# Source lines attached to results (and shown to the user as "Sources and reliability").
 SOURCES = "National Weather Service warnings (2006-2025) and FEMA disaster declarations (1996-2025)"
 EVIDENCE_SOURCES = ("Measured weather at airport stations (NOAA, 1996-2025), NOAA hurricane tracks (1950-2025) and "
                     "NOAA severe-storm reports (1996-2025)")
 
 
 def _r(x, n=2):
+    """Round for output, keeping None as None."""
     return None if x is None else round(float(x), n)
 
 
@@ -47,6 +58,8 @@ def severe_range(hz: dict) -> tuple[float, float]:
 
 
 def _latest(conn: sqlite3.Connection) -> pd.DataFrame:
+    """One row per hub from the latest scoring run, with warning-day and disaster-level values and ranges
+    for every hazard as flat columns (for example flood, flood_lo, flood_hi, routine_flood)."""
     df = pd.read_sql(
         "SELECT r.hub_id, h.name, h.state, h.region, r.composite, r.winter, r.flood, r.convective, r.hurricane, "
         "r.heat, r.tier, r.scoring_version, r.computed_at, r.details_json FROM risk_scores r JOIN hubs h "
@@ -64,6 +77,7 @@ def _latest(conn: sqlite3.Connection) -> pd.DataFrame:
 
 
 def _with_conn(fn):
+    """Decorator: use the caller's database connection, or open and close one for this call."""
     def wrapper(args, conn=None):
         own = conn is None
         conn = conn or get_connection()
@@ -81,6 +95,7 @@ def _with_conn(fn):
 
 @_with_conn
 def list_hubs(args: s.ListHubsInput, conn) -> dict:
+    """All hubs, or the hubs of one region."""
     q = "SELECT id, name, state, region FROM hubs" + (" WHERE region = ?" if args.region else "") + " ORDER BY id"
     rows = conn.execute(q, (args.region,) if args.region else ()).fetchall()
     return {"hubs": [{"hub_id": r[0], "name": r[1], "state": r[2], "region": r[3]} for r in rows],
@@ -90,6 +105,11 @@ def list_hubs(args: s.ListHubsInput, conn) -> dict:
 
 @_with_conn
 def rank_hubs(args: s.RankHubsInput, conn) -> dict:
+    """Rank hubs by disaster-level days (default) or warning days, overall or for one hazard.
+
+    With analyst day costs, each hazard's days are multiplied by its cost before summing; the ranges are
+    multiplied the same way, so they stay consistent with the value.
+    """
     df = _latest(conn)
     if args.region:
         df = df[df["region"] == args.region]
@@ -101,12 +121,15 @@ def rank_hubs(args: s.RankHubsInput, conn) -> dict:
         costs.update({h: v for h, v in args.day_costs.model_dump().items() if v is not None})
     for col in ("", "_lo", "_hi"):
         df["value" + col] = sum(df[f"{prefix}{h}{col}"] * costs[h] for h in hazards)
-    # Ties share a rank (1, 2, 2, 4 ...); order within a tie is by hub id only for display.
+    # Ties share a rank (1, 2, 2, 4); order within a tie is by hub id only for display. Values are rounded to
+    # 6 decimals first so floating-point noise does not split a real tie.
     df["rank"] = df["value"].round(6).rank(ascending=False, method="min").astype(int)
     df = df.sort_values(["rank", "hub_id"]).reset_index(drop=True)
     n_all = len(df)
     if args.top_n:
         df = df.head(args.top_n)
+    # The stored tier is based on total disaster-level days. In any other view (one hazard, warning days or
+    # custom costs) it is renamed overall_tier so the model does not present it as the tier of this ranking.
     default_view = severe and args.hazard == "all" and not args.day_costs
     tier_key = "tier" if default_view else "overall_tier"
     rows = [{"rank": int(r.rank), "hub_id": r.hub_id, "name": r.name, "state": r.state, "region": r.region,
@@ -160,11 +183,13 @@ def _evidence(d: dict, hazard: str) -> dict:
 
 
 def _seasons(conn, hub_id: str) -> dict:
+    """Season profile per hazard for one hub (None for hazards with too few warning days)."""
     return {h: json.loads(p) for h, p in conn.execute(
         "SELECT hazard, profile_json FROM hub_hazard_season WHERE hub_id=?", (hub_id,)).fetchall()}
 
 
 def _hazard_summary(d: dict, h: str, season: dict | None = None) -> dict:
+    """Everything about one hazard at one hub: both measures with ranges, severity share, season and evidence."""
     hz = d["hazards"][h]
     ss = hz["severity_share"]
     lo, hi = severe_range(hz)
@@ -180,6 +205,11 @@ def _hazard_summary(d: dict, h: str, season: dict | None = None) -> dict:
 
 @_with_conn
 def compare_hubs(args: s.CompareHubsInput, conn) -> dict:
+    """Side-by-side comparison of 2 to 6 hubs, hazard by hazard, with a verdict per hazard.
+
+    The verdict is computed here, including ties ("tie: a, b") and "none" when no hub has disaster-level
+    exposure, so the model never decides which number is larger on its own.
+    """
     hazards = args.hazards or HAZARDS
     out, ranks = [], {}
     for hub in args.hub_ids:
@@ -209,6 +239,8 @@ def compare_hubs(args: s.CompareHubsInput, conn) -> dict:
 
 @_with_conn
 def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
+    """Why a hub scores the way it does: rank, tier, each hazard's contribution, evidence, seasons, the
+    monthly pattern, recent FEMA disasters in its county, the weather station and data confidence."""
     hub = args.hub_id.value
     d = latest_breakdown(conn, hub)
     name, state, region, fips = conn.execute("SELECT name, state, region, county_fips FROM hubs WHERE id=?",
@@ -218,6 +250,7 @@ def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
     st = d["station"]
     seasons = _seasons(conn, hub)
     ranges = [severe_range(d["hazards"][h]) for h in HAZARDS]
+    # Expected disaster-level days per calendar month (all hazards), January to December.
     monthly = [r[0] for r in conn.execute("SELECT SUM(severe_days) FROM hub_monthly WHERE hub_id=? GROUP BY month "
                                           "ORDER BY month", (hub,)).fetchall()]
     peak = max(range(len(monthly)), key=lambda i: monthly[i]) if monthly else None
@@ -248,7 +281,8 @@ def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
     }
 
 
-DAY_FLAGS = {  # metric -> (variable, test) on the combined daily series
+# For each day-count metric: which daily variable it uses and the test a day must pass.
+DAY_FLAGS = {
     "snow_day": ("snow_cm", lambda v: v >= 1.0), "trace_snow_day": ("snow_cm", lambda v: v >= 0.1),
     "heavy_snow_day": ("snow_cm", lambda v: v >= 10), "freezing_day": ("tmin_c", lambda v: v <= 0),
     "extreme_cold_day": ("tmin_c", lambda v: v <= -15), "rain_day": ("precip_mm", lambda v: v >= 1),
@@ -261,6 +295,7 @@ DAY_DEFINITIONS = {
     "heavy_rain_day": "precipitation >= 50 mm", "extreme_heat_day": "daily high >= 38 C (100 F)",
     "damaging_gust_day": "peak gust >= 93 km/h (58 mph)",
 }
+# Metrics that sum a variable over the period instead of counting days.
 TOTALS = {"total_precipitation_mm": "precip_mm", "total_snowfall_cm": "snow_cm"}
 
 
@@ -283,6 +318,7 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
     days = pd.date_range(start, end).strftime("%Y-%m-%d")
     base = {"hub_id": hub, "metric": metric, "start_date": start, "end_date": end, "days_in_period": len(days)}
 
+    # Case 1: warning days in the period (from the NWS archive, 2006 to 2025 only).
     if metric.startswith("warning_days_"):
         hazard = metric.removeprefix("warning_days_")
         wp = get_params()["warnings"]
@@ -308,6 +344,8 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
                      params=(hub, start, end)).set_index("date")
     st_info = {"station": st[1], "station_id": st[0], "distance_km": st[2]} if st else None
 
+    # Case 2: observed events (ice, thunder). Only stations that record weather events can answer; model data
+    # has no reliable equivalent, so the tool says the figure is unavailable rather than guessing.
     if metric in ("ice_day", "thunder_day"):
         if not st or not st[3]:
             return {**base, "count": None, "error": "This hub's station does not record weather events; "
@@ -323,6 +361,8 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
                 **({"station": st_info} if st_info else {}),
                 "caveat": "Flags are recorded inconsistently; a missing flag doesn't prove the event didn't happen."}
 
+    # Case 3: measured variables (snow, rain, temperature, gusts): station value per day, model value for
+    # days the station missed, and days with neither are left out of the percentage.
     var = DAY_FLAGS[metric][0] if metric in DAY_FLAGS else TOTALS[metric]
     st_col, om_col = m.VARIABLES[var]
     st_s = station[st_col].reindex(days) if st_col in station else pd.Series(index=days, dtype=float)
@@ -344,13 +384,14 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
                      "Measured weather at the airport station (NOAA), with a few missing days estimated from "
                      "modeled data (Open-Meteo)") if sources["station_days"] else \
         "Modeled weather data (Open-Meteo reanalysis); no station measurements for this period"
-    if n < 0.8 * len(days):
+    if n < 0.8 * len(days):   # warn when a fifth or more of the period has no data (for example future dates)
         res["caveat"] = f"Data available for only {n} of {len(days)} days."
     return res
 
 
 @_with_conn
 def get_methodology(args: s.MethodologyInput, conn) -> dict:
+    """How the scores are built: definitions, current severity shares, mappings, sources and limitations."""
     p = get_params()
     details, version = conn.execute("SELECT details_json, scoring_version FROM risk_scores ORDER BY id DESC LIMIT 1"
                                     ).fetchone()
@@ -404,6 +445,7 @@ HAZARD_LABELS = {"winter": "winter storms / ice", "flood": "flooding", "convecti
 def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
     """Which hubs historically face the most disruption in a given calendar month, and why."""
     month = args.month or date.today().month
+    # Rank hubs by expected disaster-level days in this month, summed over hazards.
     q = ("SELECT m.*, h.name, h.state, h.region, h.county_fips FROM hub_monthly m JOIN hubs h ON h.id = m.hub_id "
          "WHERE m.month = ?" + (" AND h.region = ?" if args.region else ""))
     df = pd.read_sql(q, conn, params=(month, args.region) if args.region else (month,))
@@ -416,6 +458,8 @@ def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
     hubs = []
     for hub in order:
         rows = df[df["hub_id"] == hub].set_index("hazard")
+        # Main hazard: the one with the most disaster-level days this month; if none has any (for example only
+        # heat), fall back to the hazard with the most warning days.
         top = rows["severe_days"].idxmax() if rows["severe_days"].max() > 0 else rows["mean_warning_days"].idxmax()
         t = rows.loc[top]
         other = [{"hazard": z, "p_at_least_one_warning_day": _r(rows.loc[z, "p_warning"], 2)}
@@ -437,6 +481,7 @@ def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
             item["p_storm_within_150km_1950_2025"] = _r(t["longrecord_p"], 2)
         hubs.append(item)
 
+    # Network-wide line per hazard: how many hubs get a warning in most years this month, and which hub most often.
     summary = {}
     for z in HAZARDS:
         zr = df[df["hazard"] == z]
@@ -455,4 +500,5 @@ def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
 
 
 def find_nearest_hubs(args: s.FindNearestHubsInput, conn=None) -> dict:
+    """Thin wrapper so the registry can call locate.find_nearest_hubs like every other tool."""
     return _find_nearest_hubs(args.location, conn)

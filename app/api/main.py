@@ -1,4 +1,7 @@
-"""FastAPI backend: the chat endpoint (agent), data endpoints (tools, no LLM), health, static UI.
+"""FastAPI backend: the chat endpoint (agent), data endpoints (tools, no model), health and the static UI.
+
+The data endpoints call the same tool functions as the agent, so the leaderboard and chat answers always agree.
+Every /api route needs the access code when APP_ACCESS_CODE is set.
 
 Run locally:  uvicorn app.api.main:app --reload
 """
@@ -31,24 +34,28 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 
 class ChatRequest(BaseModel):
+    """Body of POST /api/chat. Length limits keep one request from sending a huge prompt."""
     message: str = Field(min_length=1, max_length=2000)
     session_id: str | None = Field(default=None, max_length=64)
 
 
 class ResetRequest(BaseModel):
+    """Body of POST /api/chat/reset."""
     session_id: str = Field(max_length=64)
 
 
 class BudgetRequest(BaseModel):
+    """Body of POST /api/admin/budget. The upper limit stops a typo from allowing unlimited spend."""
     daily_budget_usd: float = Field(gt=0, le=50)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Start-up: create the shared guards and the agent, and warm the place index so the first request is fast."""
     settings = get_settings()
     app.state.budget = DailyBudget(settings.daily_budget_usd)
     app.state.limiter = RateLimiter(settings.chat_rate_limit_per_min)
-    app.state.session_locks = defaultdict(threading.Lock)
+    app.state.session_locks = defaultdict(threading.Lock)   # one lock per conversation (see chat below)
     if getattr(app.state, "agent", None) is None:            # tests inject a fake agent
         app.state.agent = Agent() if settings.openai_api_key else None
     if not settings.app_access_code:
@@ -68,12 +75,14 @@ if origins:
 
 
 def require_access(x_access_code: str | None = Header(default=None)) -> None:
+    """Dependency for /api routes: reject requests without the right access code (when one is configured)."""
     expected = get_settings().app_access_code
     if expected and not code_matches(x_access_code, expected):
         raise HTTPException(401, "Missing or wrong access code (X-Access-Code header).")
 
 
 def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
+    """Dependency for admin routes: they are disabled unless ADMIN_TOKEN is set, and need that token."""
     expected = get_settings().admin_token
     if not expected:
         raise HTTPException(403, "Admin endpoints are disabled (ADMIN_TOKEN not set).")
@@ -82,7 +91,9 @@ def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
 
 
 def client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")            # behind Render's proxy
+    """The client's IP for rate limiting. Behind Render's proxy the TCP peer is the proxy, so the original
+    client address is read from the X-Forwarded-For header (first entry)."""
+    fwd = request.headers.get("x-forwarded-for")
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
 
 
@@ -91,7 +102,10 @@ def client_ip(request: Request) -> str:
 
 @app.post("/api/chat", dependencies=[Depends(require_access)], tags=["chat"])
 def chat(body: ChatRequest, request: Request) -> dict:
-    """Ask the agent. Pass the returned session_id back for follow-up questions."""
+    """Ask the agent. Pass the returned session_id back for follow-up questions.
+
+    Checks run cheapest first: configuration, rate limit, then the daily budget, before any model call.
+    """
     st = request.app.state
     if st.agent is None:
         raise HTTPException(503, "The AI service is not configured (OPENAI_API_KEY missing).")
@@ -102,14 +116,16 @@ def chat(body: ChatRequest, request: Request) -> dict:
                                  "still work; please contact the app owner to raise the budget.")
     session_id = body.session_id or uuid.uuid4().hex[:12]
     request_id = uuid.uuid4().hex[:8]
-    with st.session_locks[session_id]:                       # one turn at a time per session
+    # One turn at a time per conversation: two requests for the same session would otherwise interleave
+    # their messages in the shared history.
+    with st.session_locks[session_id]:
         try:
             result = st.agent.run_turn(body.message, session_id)
         except LLMUnavailableError as e:
             log.error("request %s: LLM unavailable: %s", request_id, e)
             raise HTTPException(502, f"The AI service is temporarily unavailable; please try again "
                                      f"(request {request_id}).") from e
-    st.budget.add(result.usage.cost_usd)
+    st.budget.add(result.usage.cost_usd)   # count the real cost of this turn against today's cap
     log.info("chat request=%s session=%s latency_ms=%s cost=%.4f tools=%s warnings=%s", request_id,
              result.session_id, result.latency_ms, result.usage.cost_usd, [t.tool for t in result.trace],
              len(result.validation_warnings))
@@ -118,6 +134,7 @@ def chat(body: ChatRequest, request: Request) -> dict:
 
 @app.post("/api/chat/reset", dependencies=[Depends(require_access)], tags=["chat"])
 def reset(body: ResetRequest, request: Request) -> dict:
+    """Forget a conversation (the New chat button)."""
     agent = request.app.state.agent
     if agent is not None:
         agent.store.reset(body.session_id)
@@ -128,6 +145,7 @@ def reset(body: ResetRequest, request: Request) -> dict:
 
 
 def _tool(fn, args):
+    """Run a tool function for a data endpoint; a tool error becomes HTTP 400 with its message."""
     conn = get_connection()
     try:
         out = fn(args, conn)
@@ -151,6 +169,7 @@ def scores(measure: str = Query("severe_disruption_days"), hazard: str = Query("
 
 @app.get("/api/hubs", dependencies=[Depends(require_access)], tags=["data"])
 def hubs(region: str | None = Query(None)) -> dict:
+    """Hub list, optionally for one region."""
     try:
         args = s.ListHubsInput(region=region)
     except ValueError as e:
@@ -160,6 +179,7 @@ def hubs(region: str | None = Query(None)) -> dict:
 
 @app.get("/api/hubs/{hub_id}/breakdown", dependencies=[Depends(require_access)], tags=["data"])
 def breakdown(hub_id: str) -> dict:
+    """One hub's full explanation (the hub panel in the UI)."""
     try:
         args = s.HubBreakdownInput(hub_id=hub_id)
     except ValueError as e:
@@ -180,6 +200,7 @@ def outlook(month: int | None = Query(None), region: str | None = Query(None),
 
 @app.get("/api/methodology", dependencies=[Depends(require_access)], tags=["data"])
 def methodology() -> dict:
+    """Definitions, severity shares, sources and limitations (the Methodology window in the UI)."""
     return _tool(get_methodology, s.MethodologyInput())
 
 
@@ -196,6 +217,7 @@ def set_budget(body: BudgetRequest, request: Request) -> dict:
 
 @app.get("/health", tags=["admin"])
 def health(request: Request) -> dict:
+    """Service status for monitoring and Render's health check. Needs no access code and reveals no secrets."""
     settings = get_settings()
     conn = get_connection()
     try:
@@ -216,6 +238,7 @@ def health(request: Request) -> dict:
 
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception):
+    """Any unexpected error: log the details on the server, return only a short message and a request id."""
     request_id = uuid.uuid4().hex[:8]
     log.exception("unhandled error request=%s path=%s", request_id, request.url.path)
     return JSONResponse(status_code=500, content={"detail": f"Internal error (request {request_id})."})

@@ -29,6 +29,7 @@ from app.scoring.params import get_params
 
 
 def poisson_interval(k: int, years: int, level: float) -> tuple[float, float]:
+    """Exact Poisson range for a rate of k events in a number of years (same method as metrics.rate_with_interval)."""
     a = 1 - level
     lo = 0.0 if k == 0 else chi2.ppf(a / 2, 2 * k) / 2
     hi = chi2.ppf(1 - a / 2, 2 * k + 2) / 2
@@ -36,7 +37,11 @@ def poisson_interval(k: int, years: int, level: float) -> tuple[float, float]:
 
 
 def densify_tracks(conn: sqlite3.Connection, step_km: float) -> pd.DataFrame:
-    """Linearly interpolate each storm's track so consecutive points are <= step_km apart."""
+    """Linearly interpolate each storm's track so consecutive points are at most step_km apart.
+
+    HURDAT2 gives a position every 6 hours, which can be 150 km or more apart for a fast storm. Without extra
+    points a storm could pass close to a hub between two fixes and be missed by the distance test.
+    """
     t = pd.read_sql("SELECT storm_id, name, dt, status, lat, lon, wind_kt FROM storm_tracks ORDER BY storm_id, dt", conn)
     # Epoch seconds, independent of pandas' datetime resolution (pandas 3 may store s/us, not ns,
     # so astype("int64") // 10**9 would be wrong).
@@ -65,17 +70,20 @@ def densify_tracks(conn: sqlite3.Connection, step_km: float) -> pd.DataFrame:
 
 
 def hurricane_rates(conn, hubs, p) -> list[dict]:
+    """Per hub and radius: storms per year at tropical-storm strength or more, storms per year at hurricane
+    strength, and storm-affected days per year, with the most notable storms for explanations."""
     hp = p["hurricane"]
     years = hp["last_year"] - hp["first_year"] + 1
     pts = densify_tracks(conn, hp["interpolate_step_km"])
+    # The last four characters of a HURDAT2 storm id are its year (for example AL092022).
     pts = pts[pts["storm_id"].str[-4:].astype(int).between(hp["first_year"], hp["last_year"])]
     wind = pts["wind_kt"].fillna(0).to_numpy()
     eligible = pts["status"].isin(hp["statuses"]).to_numpy() & (wind >= hp["min_wind_kt"])
     hurricane = (pts["status"] == "HU").to_numpy() & (wind >= hp["hurricane_wind_kt"])
     rows = []
     for hub_id, lat, lon in hubs:
-        d = haversine_km(lat, lon, pts["lat"].to_numpy(), pts["lon"].to_numpy())
-        for r in p["radii_km"]["hurricane"]:
+        d = haversine_km(lat, lon, pts["lat"].to_numpy(), pts["lon"].to_numpy())   # distance to every track point
+        for r in p["radii_km"]["hurricane"]:   # several radii are stored so the radius test can compare them
             near = d <= r
             for hazard, mask in (("hurricane", near & eligible), ("hurricane_strength", near & hurricane)):
                 sel = pts[mask].assign(dist=d[mask])
@@ -98,6 +106,11 @@ def hurricane_rates(conn, hubs, p) -> list[dict]:
 
 
 def convective_rates(conn, hubs, p) -> list[dict]:
+    """Per hub and radius: days per year with at least one tornado, hail or wind report nearby (SPC).
+
+    Days are counted rather than reports, because one storm often produces dozens of reports and the number of
+    reports grows with population (more people to report), while the number of affected days does not.
+    """
     cp = p["convective"]
     years = cp["last_year"] - cp["first_year"] + 1
     rep = pd.read_sql("SELECT hazard, date, slat, slon, elat, elon, magnitude FROM severe_reports", conn)
@@ -117,6 +130,7 @@ def convective_rates(conn, hubs, p) -> list[dict]:
 
 
 def _rate_row(hub_id, hazard, radius, y0, y1, k, years, p, details) -> dict:
+    """One row for hub_event_rates: the rate, its range, and the chance of at least one event in the horizon."""
     lo, hi = poisson_interval(k, years, p["confidence_level"])
     rate = k / years
     h = p["probability_horizon_years"]
@@ -127,6 +141,7 @@ def _rate_row(hub_id, hazard, radius, y0, y1, k, years, p, details) -> dict:
 
 
 def compute(conn: sqlite3.Connection) -> dict:
+    """Recompute all event rates and replace the hub_event_rates table."""
     p = get_params()["event_rates"]
     hubs = conn.execute("SELECT id, lat, lon FROM hubs ORDER BY id").fetchall()
     rows = hurricane_rates(conn, hubs, p) + convective_rates(conn, hubs, p)
@@ -139,7 +154,11 @@ def compute(conn: sqlite3.Connection) -> dict:
 
 
 def radius_test(conn: sqlite3.Connection) -> None:
-    """Rank stability of hubs across radii (Spearman), plus a cross-check against FEMA."""
+    """Print how stable hub rankings are across radii (Spearman rank correlation), plus a FEMA cross-check.
+
+    This is the data test used to choose the default radii: if rankings barely change between nearby radii,
+    the exact radius is not driving the result.
+    """
     p = get_params()["event_rates"]
     df = pd.read_sql("SELECT hub_id, hazard, radius_km, rate_per_year FROM hub_event_rates", conn)
     print("\nRadius test: Spearman rank correlation of hub rates between radii")

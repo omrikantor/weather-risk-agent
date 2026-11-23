@@ -16,12 +16,15 @@ import re
 from app.config import get_settings
 from app.db import get_connection
 
+# Tables with a natural primary key, where WITHOUT ROWID roughly halves the storage.
 WITHOUT_ROWID = ["daily_weather", "station_daily", "nri_county", "hub_metrics", "hub_event_rates", "nws_warnings",
                  "fema_declarations", "hub_ugc", "hub_monthly", "hub_hazard_season"]
+# Raw tables the running app never reads (only the rates computed from them).
 RAW_ONLY = ["severe_reports", "storm_tracks"]
 
 
 def rebuild_without_rowid(conn, table: str) -> None:
+    """Copy a table into a WITHOUT ROWID version with the same columns, then swap it in."""
     sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()[0]
     if "WITHOUT ROWID" in sql.upper():
         return
@@ -33,6 +36,7 @@ def rebuild_without_rowid(conn, table: str) -> None:
 
 
 def main() -> None:
+    """Compact the database in place and print the size before and after."""
     path = get_settings().db_file
     before = path.stat().st_size
     conn = get_connection()

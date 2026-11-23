@@ -1,5 +1,10 @@
-/* Weather Risk Agent: design system and layout */
+/* Weather Risk Agent: design system and layout.
 
+   Colors, shadows and fonts are defined once as variables (design tokens) on :root and redefined for dark mode,
+   so every component follows the user's light or dark system setting. Each hazard has its own color variable,
+   used by chips, legends and charts through the hz-<hazard> classes. */
+
+/* Inter is stored in the repository, so the page needs no external font service. */
 @font-face {
   font-family: "Inter";
   src: url("fonts/inter-latin-wght-normal.woff2") format("woff2");
@@ -42,6 +47,7 @@
   --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+/* Dark mode: follows the system setting unless a theme is forced with data-theme on the html element. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0a0e15; --surface: #111722; --surface-2: #161d2a; --surface-3: #1d2534;

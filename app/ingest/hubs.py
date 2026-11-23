@@ -11,14 +11,16 @@ from app.ingest.common import get_with_retry, http_client, log_ingest
 
 FCC_AREA_URL = "https://geo.fcc.gov/api/census/area"
 REQUIRED = ("id", "name", "state", "region", "lat", "lon")
-REGIONS = {"Midwest", "South", "West", "Northeast"}
+REGIONS = {"Midwest", "South", "West", "Northeast"}   # US Census Bureau regions
 
 
 def hubs_file() -> Path:
+    """The hub list is configuration, not code: a client's real sites would replace this file."""
     return get_settings().data_dir / "hubs.yaml"
 
 
 def load_hubs(path: Path | None = None) -> list[dict]:
+    """Read and validate hubs.yaml: required fields present, a known region, and unique ids."""
     data = yaml.safe_load((path or hubs_file()).read_text(encoding="utf-8"))
     hubs = data["hubs"]
     ids = set()
@@ -55,6 +57,8 @@ def fill_missing_fips(path: Path | None = None) -> int:
         if h.get("county_fips"):
             continue
         fips, cname, state = lookup_county(h["lat"], h["lon"])
+        # Safety check: a coordinate typo that lands in another state stops the build instead of silently
+        # linking the hub to the wrong county.
         if state != h["state"]:
             raise ValueError(f"hub {h['id']}: point resolves to state {state}, expected {h['state']}")
         # Rewrite the single-line flow mapping for this hub in place (keeps comments/layout).
@@ -73,6 +77,7 @@ def fill_missing_fips(path: Path | None = None) -> int:
 
 
 def load_hubs_into_db(conn: sqlite3.Connection, hubs: list[dict]) -> int:
+    """Insert or update every hub from hubs.yaml and remove hubs that are no longer listed."""
     for h in hubs:
         if not h.get("county_fips"):
             raise ValueError(f"hub {h['id']} has no county_fips; run fill_missing_fips first")

@@ -28,6 +28,7 @@ RESULTS_DIR = Path(__file__).with_name("results")
 
 
 def run_case(agent: Agent, case: dict) -> dict:
+    """Run every turn of one case in a single conversation and check each turn."""
     session, turns, cost, latency = None, [], 0.0, 0
     for turn in case["turns"]:
         r = agent.run_turn(turn["message"], session).to_dict()
@@ -44,6 +45,7 @@ def run_case(agent: Agent, case: dict) -> dict:
 
 
 def main() -> None:
+    """Select cases, run them, print a scorecard and write evals/results/eval-latest.json."""
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--case", nargs="*")

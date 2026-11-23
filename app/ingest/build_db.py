@@ -19,10 +19,13 @@ from app.db import create_schema, get_connection
 from app.ingest import census_gazetteer, fema_nri, ghcn, hubs, hurdat2, nws_warnings, open_meteo, spc_reports
 from app.scoring import engine, event_rates, seasonal
 
+# Order matters: hubs first (everything links to them), rates before scoring, scoring before the seasonal
+# outlook (which uses the severity shares).
 STEPS = ["hubs", "nri", "census", "weather", "hurdat2", "spc", "ghcn", "warnings", "rates", "score"]
 
 
 def summarize(conn) -> None:
+    """Print row counts and flag hubs that are missing weather data or a station."""
     q = lambda sql: conn.execute(sql).fetchone()[0]  # noqa: E731
     print("\nDatabase summary")
     print(f"  hubs:            {q('SELECT COUNT(*) FROM hubs')}")
@@ -51,6 +54,7 @@ def summarize(conn) -> None:
 
 
 def main() -> None:
+    """Run the selected build steps in order. Each step uses the cache in data/raw unless --refresh is given."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--refresh", action="store_true", help="re-download sources instead of using the cache")
     ap.add_argument("--skip-weather", action="store_true", help="skip the Open-Meteo step")

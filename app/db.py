@@ -1,7 +1,9 @@
 """SQLite connection and schema.
 
-SQLite is the single store for this project: ~50 hubs x 10 years of daily weather
-(~165k rows), FEMA NRI for all ~3.2k US counties, and Census place/county centroids.
+SQLite is the single store for this project. It is written only by the offline build (app/ingest) and read by
+the running service, so a server database is not needed. Sizes after the build: 47 hubs, about 515,000
+station-days and 187,000 model-days of weather, 13,000 NWS warnings, 470 FEMA declarations, FEMA hazard
+frequencies for every US county and 32,000 Census places. See DESIGN.md section 4 for why SQLite was chosen.
 """
 
 import sqlite3
@@ -37,11 +39,12 @@ CREATE TABLE IF NOT EXISTS daily_weather (
 CREATE TABLE IF NOT EXISTS nri_county (
     county_fips   TEXT NOT NULL,
     hazard        TEXT NOT NULL,
-    afreq         REAL,                    -- annualized frequency (events/year), NULL -> not applicable
+    afreq         REAL,                    -- annualized frequency (events per year); NULL when not applicable
     nri_version   TEXT,
     PRIMARY KEY (county_fips, hazard)
 );
 
+-- Every US Census place (cities, towns and unincorporated communities), used to find non-hub places.
 CREATE TABLE IF NOT EXISTS places (
     geoid         TEXT PRIMARY KEY,
     name          TEXT NOT NULL,           -- e.g. "Tampa" (Census suffix like "city" removed)
@@ -81,7 +84,7 @@ CREATE TABLE IF NOT EXISTS severe_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_reports_hazard ON severe_reports(hazard, date);
 
--- Per-hub long-term event rates (Tier A), one row per hub x hazard x radius.
+-- Per-hub long-term storm and report rates, one row per hub x hazard x search radius.
 CREATE TABLE IF NOT EXISTS hub_event_rates (
     hub_id          TEXT NOT NULL,
     hazard          TEXT NOT NULL,         -- hurricane | hurricane_strength | tornado | hail | wind
@@ -99,7 +102,7 @@ CREATE TABLE IF NOT EXISTS hub_event_rates (
     PRIMARY KEY (hub_id, hazard, radius_km)
 );
 
--- Tier B: the GHCN-Daily station chosen for each hub by the fixed selection rule.
+-- The GHCN-Daily weather station chosen for each hub by the fixed selection rule in params.yaml.
 CREATE TABLE IF NOT EXISTS hub_stations (
     hub_id          TEXT PRIMARY KEY,
     station_id      TEXT NOT NULL,
@@ -111,6 +114,7 @@ CREATE TABLE IF NOT EXISTS hub_stations (
     gust_measured   INTEGER NOT NULL       -- 0 = fallback station without peak-gust data
 );
 
+-- Daily measurements from the chosen stations (1996 to 2025).
 CREATE TABLE IF NOT EXISTS station_daily (
     station_id      TEXT NOT NULL,
     date            TEXT NOT NULL,
@@ -136,7 +140,8 @@ CREATE TABLE IF NOT EXISTS hub_ugc (
     PRIMARY KEY (hub_id, ugc)
 );
 
--- NWS warnings (VTEC) for hub counties/zones, from the Iowa Environmental Mesonet archive.
+-- NWS warnings (VTEC) for hub counties and zones, from the Iowa Environmental Mesonet archive. Storm-based
+-- warnings whose polygon contains a hub are stored with ugc = 'POINT:<hub_id>'.
 CREATE TABLE IF NOT EXISTS nws_warnings (
     ugc         TEXT NOT NULL,
     wfo         TEXT,
@@ -185,6 +190,7 @@ CREATE TABLE IF NOT EXISTS hub_hazard_season (
     PRIMARY KEY (hub_id, hazard)
 );
 
+-- Descriptive climate figures per hub (snow days per year and so on), written by the scoring engine.
 CREATE TABLE IF NOT EXISTS hub_metrics (
     hub_id        TEXT NOT NULL,
     metric        TEXT NOT NULL,
@@ -193,6 +199,8 @@ CREATE TABLE IF NOT EXISTS hub_metrics (
     PRIMARY KEY (hub_id, metric, period)
 );
 
+-- One row per hub per scoring run. composite = disaster-level days per year; details_json holds the full
+-- evidence that the tools use to explain a score. Readers always take the latest row per hub.
 CREATE TABLE IF NOT EXISTS risk_scores (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     hub_id          TEXT NOT NULL,
@@ -205,6 +213,7 @@ CREATE TABLE IF NOT EXISTS risk_scores (
 );
 CREATE INDEX IF NOT EXISTS idx_scores_hub ON risk_scores(hub_id, computed_at);
 
+-- Reserved for score-change alerts, which are designed but not built (DESIGN.md section 11). Empty.
 CREATE TABLE IF NOT EXISTS alerts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     hub_id      TEXT NOT NULL,
@@ -216,6 +225,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     delivered   INTEGER NOT NULL DEFAULT 0
 );
 
+-- What was downloaded and when; /health reports the latest fetch per source as data freshness.
 CREATE TABLE IF NOT EXISTS ingest_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     source      TEXT NOT NULL,
@@ -229,14 +239,16 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 
 
 def get_connection(db_file: Path | None = None) -> sqlite3.Connection:
+    """Open the database. The long timeout lets a reader wait while the build is writing instead of failing."""
     path = db_file or get_settings().db_file
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=120)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row   # rows can be read by column name as well as by position
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
+    """Create any missing tables and indexes; existing tables and data are left untouched."""
     conn.executescript(SCHEMA)
     conn.commit()

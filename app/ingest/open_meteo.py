@@ -1,6 +1,7 @@
 """Daily weather history per hub from the Open-Meteo Historical (archive) API.
 
-Data: ERA5-based reanalysis on a ~9-25 km grid (not station observations).
+Data: ERA5-based reanalysis on a grid of about 9 to 25 km (a weather model, not station observations).
+It fills gaps in station data and covers the current year (see app/scoring/metrics.py).
 The free API is for non-commercial use; a production deployment would use a paid plan.
 """
 
@@ -66,6 +67,7 @@ def fetch_hub(hub: dict, start: date, end: date, label: str, refresh: bool = Fal
 
 
 def to_rows(hub_id: str, data: dict) -> list[tuple]:
+    """Turn the API's column lists into one database row per day."""
     daily = data["daily"]
     cols = list(COLUMN_MAP)   # weather_code is fetched (cached raw) but not stored: the archive never
     rows = []                 # emits freezing-rain/thunder codes, so it carries no useful signal here
@@ -75,6 +77,7 @@ def to_rows(hub_id: str, data: dict) -> list[tuple]:
 
 
 def store_rows(conn: sqlite3.Connection, rows: list[tuple]) -> None:
+    """Insert or overwrite daily rows (a rerun updates days instead of duplicating them)."""
     conn.executemany(
         "INSERT OR REPLACE INTO daily_weather "
         "(hub_id, date, tmax_c, tmin_c, precip_mm, snowfall_cm, wind_gust_kmh) "
@@ -86,7 +89,11 @@ def store_rows(conn: sqlite3.Connection, rows: list[tuple]) -> None:
 
 def ingest(conn: sqlite3.Connection, hubs: list[dict], refresh: bool = False,
            include_current_year: bool = True) -> dict:
-    """Ingest history (2016-2025) and, optionally, the current year to date. Resumable via cache."""
+    """Ingest history (2016 to 2025) and, optionally, the current year to date.
+
+    The free API has an hourly request limit. When it is reached the function stops cleanly and a later rerun
+    continues where it stopped, because hubs already downloaded are read from the cache.
+    """
     today = date.today()
     current_end = today - timedelta(days=ARCHIVE_LAG_DAYS)
     current_start = date(today.year, 1, 1)
@@ -99,6 +106,7 @@ def ingest(conn: sqlite3.Connection, hubs: list[dict], refresh: bool = False,
             periods.append((current_start, current_end, f"ytd{today.year}"))
         try:
             for start, end, label in periods:
+                # History never changes, so --refresh only re-downloads the current year.
                 data = fetch_hub(hub, start, end, label, refresh=refresh and label != "history")
                 rows = to_rows(hub["id"], data)
                 store_rows(conn, rows)

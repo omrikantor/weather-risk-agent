@@ -6,8 +6,8 @@ from our environment, so we page through the same table via the ArcGIS REST API.
 
 Used by find_nearest_hubs only: each county's hazard profile = NRI annualized event
 frequency (AFREQ) per hazard. Not "risk score": that scales with exposed property and
-population, so large urban counties score high on almost every hazard (e.g. Dallas County
-~99 for winter weather). Scoring itself uses NWS warnings + FEMA declarations.
+population, so large urban counties score high on almost every hazard (for example Dallas County scores
+about 99 for winter weather). Scoring itself uses NWS warnings and FEMA declarations.
 """
 
 import sqlite3
@@ -22,7 +22,7 @@ SERVICE_URL = (
     "National_Risk_Index_Counties/FeatureServer/0/query"
 )
 
-# NRI hazard prefix -> our hazard key
+# NRI field prefix for each hazard, and the hazard name we store
 HAZARDS = {
     "WNTW": "winter_weather",
     "ISTM": "ice_storm",
@@ -39,14 +39,16 @@ HAZARDS = {
 FIELDS = ["STCOFIPS", "COUNTY", "STATEABBRV", "NRI_VER"] + [
     f"{p}_{s}" for p in HAZARDS for s in ("AFREQ", "RISKS", "RISKR", "ALR_NPCTL")
 ]
-PAGE_SIZE = 2000
+PAGE_SIZE = 2000   # the ArcGIS service returns at most 2,000 rows per request
 
 
 def raw_cache_path():
+    """Where the downloaded county table is cached."""
     return get_settings().raw_dir / "nri_counties.csv"
 
 
 def download(refresh: bool = False) -> pd.DataFrame:
+    """Download all US counties page by page (about 3,200 rows), or read the cached copy."""
     cache = raw_cache_path()
     if cache.exists() and not refresh:
         return pd.read_csv(cache, dtype={"STCOFIPS": str})
@@ -66,6 +68,7 @@ def download(refresh: bool = False) -> pd.DataFrame:
                 raise RuntimeError(f"NRI query error: {r['error']}")
             feats = r.get("features", [])
             rows += [f["attributes"] for f in feats]
+            # A short page without the "more data" flag means this was the last page.
             if len(feats) < PAGE_SIZE and not r.get("exceededTransferLimit"):
                 break
             offset += len(feats)
@@ -85,6 +88,7 @@ def to_long(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
+    """Replace nri_county with the latest download. Missing values are stored as NULL, not zero."""
     df = download(refresh=refresh)
     long = to_long(df)
     conn.execute("DELETE FROM nri_county")

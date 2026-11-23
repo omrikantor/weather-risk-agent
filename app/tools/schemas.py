@@ -1,4 +1,4 @@
-"""Tool input models (the LLM -> code contract for tool calls).
+"""Tool input models: the contract for what the language model may send to each tool.
 
 Each model becomes a strict OpenAI function schema (see registry.strict_schema): every field
 is required (optional ones are nullable) and no extra fields are allowed. Hub ids and regions
@@ -13,12 +13,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.ingest.hubs import load_hubs
 
+# Built from data/hubs.yaml at start-up, so adding a hub to the file adds it to every tool schema.
 HubId = Enum("HubId", {h["id"]: h["id"] for h in load_hubs()}, type=str)
 Region = Literal["Midwest", "South", "West", "Northeast"]
 Hazard = Literal["winter", "flood", "convective", "hurricane", "heat"]
 
 
 class _Strict(BaseModel):
+    """Base for all inputs: unknown fields are rejected instead of silently ignored."""
     model_config = ConfigDict(extra="forbid")
 
 
@@ -27,14 +29,24 @@ class ListHubsInput(_Strict):
 
 
 class DayCosts(_Strict):
+    """Optional analyst weights: how costly one disaster-level day of each hazard is, relative to the others."""
     winter: float | None = Field(description="Relative cost of a winter disruption day (null = 1).")
     flood: float | None = Field(description="Relative cost of a flood disruption day (null = 1).")
     convective: float | None = Field(description="Relative cost of a convective/wind disruption day (null = 1).")
     hurricane: float | None = Field(description="Relative cost of a hurricane disruption day (null = 1).")
     heat: float | None = Field(description="Relative cost of a heat disruption day (null = 1).")
 
+    @field_validator("winter", "flood", "convective", "hurricane", "heat")
+    @classmethod
+    def _positive(cls, v):
+        # A zero or negative cost would silently remove a hazard or reverse the ranking.
+        if v is not None and v <= 0:
+            raise ValueError("day costs must be greater than 0")
+        return v
+
 
 class RankHubsInput(_Strict):
+    """Arguments for rank_hubs."""
     measure: Literal["severe_disruption_days", "routine_disruption_days"] = Field(
         description="severe_disruption_days (default ranking for resilience investment) or "
                     "routine_disruption_days (all NWS warning days).")
@@ -63,6 +75,7 @@ class RankHubsInput(_Strict):
 
 
 class CompareHubsInput(_Strict):
+    """Arguments for compare_hubs."""
     hub_ids: list[HubId] = Field(description="2 to 6 hub ids to compare.")
     hazards: list[Hazard] | None = Field(description="Hazards to compare, or null for all five.")
 
@@ -75,9 +88,11 @@ class CompareHubsInput(_Strict):
 
 
 class HubBreakdownInput(_Strict):
+    """Arguments for get_hub_risk_breakdown."""
     hub_id: HubId = Field(description="The hub to explain.")
 
 
+# Every statistic get_weather_stat can compute; the thresholds are explained in the field description below.
 WeatherMetric = Literal[
     "snow_day", "trace_snow_day", "heavy_snow_day", "ice_day", "freezing_day", "extreme_cold_day",
     "heavy_rain_day", "rain_day", "extreme_heat_day", "damaging_gust_day", "thunder_day",
@@ -88,6 +103,7 @@ WeatherMetric = Literal[
 
 
 class WeatherStatInput(_Strict):
+    """Arguments for get_weather_stat: one metric at one hub over a date range."""
     hub_id: HubId = Field(description="The hub.")
     metric: WeatherMetric = Field(
         description="snow_day: snowfall >= 1 cm; trace_snow_day: >= 0.1 cm; heavy_snow_day: >= 10 cm; "
@@ -108,10 +124,11 @@ class WeatherStatInput(_Strict):
 
 
 class MethodologyInput(_Strict):
-    pass
+    """get_methodology takes no arguments."""
 
 
 class SeasonalOutlookInput(_Strict):
+    """Arguments for get_seasonal_outlook."""
     month: int | None = Field(description="Calendar month 1-12, or null for the current month.")
     region: Region | None = Field(description="US Census region filter, or null for all hubs.")
     top_n: int | None = Field(description="How many hubs to return (1-47), or null for 5.")
@@ -132,4 +149,5 @@ class SeasonalOutlookInput(_Strict):
 
 
 class FindNearestHubsInput(_Strict):
+    """Arguments for find_nearest_hubs: free text, resolved against Census places in locate.py."""
     location: str = Field(description="A US place that is not one of our hubs, e.g. 'Tampa, FL' or 'Spokane'.")

@@ -19,12 +19,14 @@ from app.scoring.params import get_params
 
 
 def _cache(name: str):
+    """Path of a cached NWS or IEM response in data/raw/nws."""
     p = get_settings().raw_dir / "nws" / name
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def hub_geography(conn: sqlite3.Connection, refresh: bool = False) -> int:
+    """Store each hub's NWS county code, forecast zone code and time zone (from api.weather.gov/points)."""
     wp = get_params()["warnings"]
     rows = []
     with http_client(timeout=60) as c:
@@ -36,6 +38,7 @@ def hub_geography(conn: sqlite3.Connection, refresh: bool = False) -> int:
                 time.sleep(0.5)
             props = json.loads(cache.read_text(encoding="utf-8"))["properties"]
             tz = props["timeZone"]
+            # The API returns links such as .../zones/county/TXC113; the last part is the code.
             rows.append((hub_id, props["county"].rsplit("/", 1)[-1], "county", tz))
             rows.append((hub_id, props["forecastZone"].rsplit("/", 1)[-1], "zone", tz))
     conn.execute("DELETE FROM hub_ugc")
@@ -45,7 +48,16 @@ def hub_geography(conn: sqlite3.Connection, refresh: bool = False) -> int:
 
 
 def ingest_warnings(conn: sqlite3.Connection, refresh: bool = False) -> dict:
-    """Zone/county products by UGC; polygon products by hub point (stored with ugc = 'POINT:<hub_id>')."""
+    """Download and store warnings for every hub.
+
+    Two kinds of warnings are handled differently:
+    - Storm-based (polygon) warnings, such as severe thunderstorm, tornado and flash flood, are drawn as shapes
+      that often cover only part of a county. They are fetched by the hub's point, so only polygons that
+      contain the hub are kept, stored with ugc = 'POINT:<hub_id>'.
+    - Zone and county warnings, such as winter storm, heat and hurricane, cover a whole forecast zone or
+      county and are fetched by code.
+    Only real warnings (significance W) of the mapped types are stored; watches and advisories are not.
+    """
     wp = get_params()["warnings"]
     mapped = {code for codes in wp["phenomena"].values() for code in codes}
     polygon = set(wp["polygon_phenomena"])
@@ -67,7 +79,7 @@ def ingest_warnings(conn: sqlite3.Connection, refresh: bool = False) -> dict:
                     and e.get("phenomena") in (mapped & polygon) and e.get("issue") and e.get("expire")]
             conn.executemany("INSERT OR IGNORE INTO nws_warnings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
             point_total += len(rows)
-    wanted = mapped - polygon
+    wanted = mapped - polygon   # types counted by zone or county; polygon types were handled above
     with http_client(timeout=180) as c:
         for ugc in ugcs:
             cache = _cache(f"vtec_{ugc}_{wp['first_year']}_{wp['last_year']}.json")
@@ -92,6 +104,11 @@ def ingest_warnings(conn: sqlite3.Connection, refresh: bool = False) -> dict:
 
 
 def ingest_declarations(conn: sqlite3.Connection, refresh: bool = False) -> dict:
+    """Store FEMA major-disaster declarations of weather types in hub counties.
+
+    OpenFEMA returns at most 10,000 rows per request, so the download pages with $skip. A missing incident end
+    date is replaced by the begin date (a one-day incident), so open-ended records do not cover years.
+    """
     dp = get_params()["declarations"]
     cache = get_settings().raw_dir / f"fema_declarations_{dp['first_year']}plus.csv"
     if refresh or not cache.exists():
@@ -130,5 +147,6 @@ def ingest_declarations(conn: sqlite3.Connection, refresh: bool = False) -> dict
 
 
 def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
+    """Hub geography first (the warnings need the zone codes), then warnings, then declarations."""
     return {"ugc_rows": hub_geography(conn, refresh), **ingest_warnings(conn, refresh),
             **ingest_declarations(conn, refresh)}

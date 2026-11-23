@@ -1,10 +1,16 @@
-/* Weather Risk Agent UI. Plain JS, no build step.
-   Security: model output (markdown) is rendered with marked + DOMPurify; everything else is set via textContent. */
+/* Weather Risk Agent UI. Plain JavaScript, no framework and no build step.
+
+   Layout: seasonal outlook and chat in the main column, leaderboard on the right, a hub detail drawer, and the
+   Methodology window. Every number on screen comes from the API, which uses the same tool functions as the agent.
+
+   Security: model output (markdown) is rendered with marked and then sanitized with DOMPurify; everything else
+   is inserted as text, never as HTML. The only HTML strings inserted directly are the fixed SVG icons below. */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
   "November", "December"];
+/* Display names for the five hazard groups (long for chips and legends, short for cards). */
 const HAZARDS = {
   winter: { label: "Winter storms / ice", short: "Winter" },
   flood: { label: "Flooding", short: "Flood" },
@@ -12,6 +18,7 @@ const HAZARDS = {
   hurricane: { label: "Hurricanes / tropical", short: "Hurricane" },
   heat: { label: "Extreme heat", short: "Heat" },
 };
+/* Inline SVG icons per hazard (static strings, safe to insert as HTML). */
 const ICON = {
   winter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M4.9 6l14.2 12M19.1 6 4.9 18M9 4l3 3 3-3M9 20l3-3 3 3"/></svg>',
   flood: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2M2 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2M12 3v4"/></svg>',
@@ -27,6 +34,7 @@ const QTYPE = { ranking: "Ranking", comparison: "Comparison", statistic: "Statis
   methodology: "Methodology", stand_in: "Stand-in hub", clarification: "Clarification", out_of_scope: "Out of scope" };
 const MEASURE = { severe_disruption_days: "Disaster-level days", routine_disruption_days: "Warning days",
   weather_statistic: "Weather statistic" };
+/* Sample questions on the welcome screen (the assignment's questions plus two features). */
 const SAMPLES = [
   "Which hubs in the Midwest are most exposed to winter disruption?",
   "Compare Miami and Houston in terms of hurricane and flood exposure.",
@@ -36,15 +44,19 @@ const SAMPLES = [
   "What should we watch for this month?",
 ];
 
-const storage = makeStorage();   // localStorage can throw (private mode); wrapped
+const storage = makeStorage();   // localStorage can throw (private mode), so every access is wrapped
+/* ?dev=1 turns the developer view on (and ?dev=0 off); the choice is remembered in this browser. */
 const urlDev = new URLSearchParams(location.search).get("dev");
 if (urlDev !== null) storage.set("wra_dev", urlDev === "0" ? "0" : "1");
+/* All UI state in one place: access code, current conversation, view options and leaderboard filters. */
 const state = {
   code: storage.get("wra_code") || "", sessionId: null, busy: false, dev: storage.get("wra_dev") === "1",
   speak: storage.get("wra_speak") === "1", month: new Date().getMonth() + 1, measure: "severe_disruption_days", hazard: "all", region: "",
 };
 
 /* ---------------- helpers ---------------- */
+/* Create an element: el("div", { class: "x", onclick: fn }, child1, "text").
+   Attributes starting with "on" become event listeners; null and false children are skipped. */
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -60,8 +72,9 @@ function el(tag, attrs = {}, ...children) {
 }
 /* replaceChildren() would render null/false as text; skip them. */
 function fill(node, ...kids) { node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false)); }
+/* Format a number with at most d decimals, or "n/a" when missing. */
 const fmt = (v, d = 2) => (v == null ? "n/a" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }));
-/* 0.36 -> "once every 2.8 yrs"; 1.4 -> "1.4 days/yr". */
+/* Readable frequency: 0.36 per year becomes "once every 2.8 yrs", 1.4 stays "1.4 days/yr". */
 function oncePer(v) {
   if (!v) return "none in the data";
   return v < 1 ? `once every ${fmt(1 / v, 1)} yrs` : `${fmt(v)} days/yr`;
@@ -69,6 +82,7 @@ function oncePer(v) {
 function monthYear(iso) { const [y, m] = iso.split("-"); return `${MONTHS[+m - 1].slice(0, 3)} ${y}`; }
 const pct = (v) => (v == null ? "n/a" : `${Math.round(v * 100)}%`);
 function hzChip(h, text) { return el("span", { class: `hz-chip hz-${h}`, html: ICON[h] }, text || HAZARDS[h].label); }
+/* Model text to safe HTML: markdown to HTML, sanitized; links open in a new tab; wide tables scroll. */
 function renderMarkdown(md) {
   const html = DOMPurify.sanitize(marked.parse(md || "", { gfm: true, breaks: false }));
   const div = el("div", { class: "md" }); div.innerHTML = html;
@@ -76,6 +90,7 @@ function renderMarkdown(md) {
   div.querySelectorAll("table").forEach((t) => { const w = el("div", { class: "table-wrap" }); t.replaceWith(w); w.append(t); });
   return div;
 }
+/* Fallback label for an evidence field without an entry in EVIDENCE_LABELS. */
 function prettyKey(k) {
   return k.replace(/_/g, " ").replace(/\(([^)]*)\)/, " ($1)").replace(/\bper year\b/, "/ yr")
     .replace(/^p storm within 150km next 10y$/, "chance of a storm within 150 km in 10 years")
@@ -84,6 +99,8 @@ function prettyKey(k) {
 
 /* ---------------- API ---------------- */
 class ApiError extends Error { constructor(status, detail) { super(detail); this.status = status; } }
+/* Call the API with the access code. A 401 reopens the access-code dialog; other errors carry the
+   server's message so it can be shown to the user. */
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json" };
   if (state.code) headers["X-Access-Code"] = state.code;
@@ -98,6 +115,7 @@ async function api(path, opts = {}) {
 }
 
 /* ---------------- status / access ---------------- */
+/* Status dot in the header (online, unavailable or offline), from /health. */
 async function loadHealth() {
   try {
     const h = await (await fetch("/health")).json();
@@ -105,8 +123,8 @@ async function loadHealth() {
     $("status-dot").className = "dot " + (ok ? "ok" : "bad");
     const b = h.budget;
     $("status-text").textContent = !ok ? "Assistant unavailable"
-      : state.dev ? `Online · $${fmt(b.remaining_usd, 2)} budget left today` : "Online";
-    $("status").title = state.dev ? `Model ${h.llm_model} · scores ${h.scoring_version} · computed ${h.scores_computed_at}`
+      : state.dev ? `Online \u00b7 $${fmt(b.remaining_usd, 2)} budget left today` : "Online";
+    $("status").title = state.dev ? `Model ${h.llm_model} \u00b7 scores ${h.scoring_version} \u00b7 computed ${h.scores_computed_at}`
       : `Data updated ${String(h.scores_computed_at || "").slice(0, 10)}`;
     return h;
   } catch {
@@ -117,6 +135,7 @@ function showCodeModal(msg = "") {
   $("code-error").textContent = msg; $("code-modal").classList.add("open");
   setTimeout(() => $("code-input").focus(), 50);
 }
+/* Access code form: save the code, test it with a cheap request, then load the data views. */
 $("code-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   state.code = $("code-input").value.trim();
@@ -129,6 +148,7 @@ $("code-form").addEventListener("submit", async (e) => {
 });
 
 /* ---------------- outlook ---------------- */
+/* Seasonal outlook: the 5 hubs with the most expected disruption in the selected month, plus a network line. */
 async function loadOutlook() {
   $("m-label").textContent = MONTHS[state.month - 1];
   $("outlook-title").textContent = state.month === new Date().getMonth() + 1
@@ -151,6 +171,7 @@ async function loadOutlook() {
     grid.replaceChildren(el("div", { class: "muted" }, err.message));
   }
 }
+/* One outlook card; clicking it opens the hub panel. */
 function outlookCard(h, monthName) {
   const z = h.top_hazard;
   const events = h.past_fema_disasters_this_month.map((e) => `${titleCase(e.title || e.type)} ${e.year}`);
@@ -162,12 +183,13 @@ function outlookCard(h, monthName) {
     el("div", { style: "margin-top:10px" }, el("div", { class: "pct num" }, pct(h.p_at_least_one_warning_day)),
       el("div", { class: "pct-label" }, `of ${monthName}s had a ${HAZARDS[z].short.toLowerCase()} warning (${h.years_with_warning} of ${h.years_observed} yrs)`)),
     el("div", { class: "meta" }, el("span", {}, "Disaster-level days"), el("span", { class: "num" }, fmt(h.expected_severe_days_this_month, 2))),
-    events.length ? el("div", { class: "events", title: events.join(" · ") }, events.join(" · ")) : null);
+    events.length ? el("div", { class: "events", title: events.join(" \u00b7 ") }, events.join(" \u00b7 ")) : null);
   return card;
 }
 function titleCase(s) { return String(s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bAnd\b/g, "and"); }
 
 /* ---------------- leaderboard ---------------- */
+/* Leaderboard: each row shows the rank, the best estimate (dot) and the 90% range (bar) on a shared scale. */
 async function loadBoard() {
   const list = $("lb-list");
   list.replaceChildren(...Array.from({ length: 8 }, () => el("div", { class: "skeleton", style: "height:40px;margin:6px 0" })));
@@ -178,13 +200,13 @@ async function loadBoard() {
     const max = Math.max(...r.ranking.map((x) => x.range_90pct[1] || x.value_days_per_year), 0.0001);
     const unit = state.measure === "severe_disruption_days" ? "Disaster-level days per year (part of a federally declared disaster)"
       : "Days per year with a weather warning";
-    $("lb-caption").textContent = `${unit} · ${r.hubs_considered} hubs. Dot = best estimate, bar = likely range.`;
+    $("lb-caption").textContent = `${unit} \u00b7 ${r.hubs_considered} hubs. Dot = best estimate, bar = likely range.`;
     list.replaceChildren(...r.ranking.map((x) => {
       const tier = x.tier || x.overall_tier;
       const [lo, hi] = x.range_90pct;
       return el("button", { class: `lb-row${x.no_exposure_in_data ? " zero" : ""}`, onclick: () => openHub(x.hub_id) },
         el("span", { class: "lb-rank" }, x.rank),
-        el("span", { class: "lb-name" }, x.name, el("small", {}, `${x.state} · ${x.region}`)),
+        el("span", { class: "lb-name" }, x.name, el("small", {}, `${x.state} \u00b7 ${x.region}`)),
         el("span", { class: "lb-bar", "aria-hidden": "true" }, el("span", { class: "track" }),
           el("span", { class: "range", style: `left:${(lo / max) * 100}%;width:${Math.max(((hi - lo) / max) * 100, 1)}%` }),
           el("span", { class: "point", style: `left:${(x.value_days_per_year / max) * 100}%` })),
@@ -201,6 +223,7 @@ $("f-hazard").addEventListener("change", (e) => { state.hazard = e.target.value;
 $("f-region").addEventListener("change", (e) => { state.region = e.target.value; loadBoard(); });
 
 /* ---------------- hub drawer ---------------- */
+/* Hub drawer: open with a loading placeholder, then fill it from /api/hubs/{id}/breakdown. */
 async function openHub(hubId) {
   $("drawer").classList.add("open"); $("scrim").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false");
   document.body.classList.remove("show-board"); syncBoardButton();
@@ -215,9 +238,11 @@ function closeDrawer() {
 $("drawer-close").addEventListener("click", closeDrawer);
 $("scrim").addEventListener("click", closeDrawer);
 
+/* Build the hub panel: headline figures, what drives the score, the monthly pattern, evidence per hazard,
+   recent FEMA disasters and data reliability. */
 function renderHub(d) {
   $("drawer-title").replaceChildren(
-    el("div", { class: "eyebrow" }, `${d.region} · ${d.state}`),
+    el("div", { class: "eyebrow" }, `${d.region} \u00b7 ${d.state}`),
     el("h2", {}, d.name, " ", el("span", { class: `pill ${d.tier}`, style: "vertical-align:middle" }, d.tier)));
   const total = d.severe_days_per_year || 0;
   const contrib = d.contributions;
@@ -233,13 +258,13 @@ function renderHub(d) {
       el("div", { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px" },
         hzChip(z), el("span", { class: "faint num", style: "font-size:12px;text-align:right",
           title: `${pct(hz.severity_share)} of warning days for this hazard were part of a federally declared disaster` },
-          `${fmt(hz.warning_days_per_year, 1)} warning days/yr · disaster-level ${oncePer(hz.severe_days_per_year)}`)),
+          `${fmt(hz.warning_days_per_year, 1)} warning days/yr \u00b7 disaster-level ${oncePer(hz.severe_days_per_year)}`)),
       s ? el("div", { class: "season" },
         el("div", {}, el("span", { class: "faint" }, "When "), el("b", {}, s.typical_dates.replace(" - ", " to ")),
-          el("span", { class: "faint" }, ` · peak ${s.peak_month}`)),
-        el("div", {}, el("b", {}, `~${fmt(s.events_per_year, 1)}`), el("span", { class: "faint" }, " events/yr · usually "),
+          el("span", { class: "faint" }, ` \u00b7 peak ${s.peak_month}`)),
+        el("div", {}, el("b", {}, `about ${fmt(s.events_per_year, 1)}`), el("span", { class: "faint" }, " events/yr \u00b7 usually "),
           el("b", {}, `${s.typical_event_days} day${s.typical_event_days === 1 ? "" : "s"}`),
-          el("span", { class: "faint" }, ` · longest ${s.longest_event_days} days (${monthYear(s.longest_event_start)})`))) : null,
+          el("span", { class: "faint" }, ` \u00b7 longest ${s.longest_event_days} days (${monthYear(s.longest_event_start)})`))) : null,
       el("div", { class: "kv" }, ...ev.flatMap(([k, v]) => [el("span", {}, EVIDENCE_LABELS[k] || prettyKey(k)),
         el("span", {}, typeof v !== "number" ? String(v) : k.startsWith("p_") ? pct(v) : fmt(v))])),
       z === "hurricane" && hz.evidence.notable_storms && hz.evidence.notable_storms.length
@@ -258,7 +283,7 @@ function renderHub(d) {
       el("div", { class: "legend" }, ...contrib.map((c) => el("div", { class: `hz-${c.hazard}` }, el("i"),
         el("span", {}, HAZARDS[c.hazard].label), el("span", { class: "num muted" }, oncePer(c.severe_days_per_year)),
         el("span", { class: "num faint", style: "width:42px;text-align:right" }, pct(c.share_of_total)))))),
-    months.length ? el("div", { class: "block" }, el("h4", {}, `Disaster-level days by month · peak in ${d.peak_month}`),
+    months.length ? el("div", { class: "block" }, el("h4", {}, `Disaster-level days by month \u00b7 peak in ${d.peak_month}`),
       el("div", { class: "months" }, ...months.map((v, i) => el("div", { class: `b${i === peakIdx ? " peak" : ""}`,
         style: `height:${Math.max((v / mMax) * 100, 2)}%`, title: `${MONTHS[i]}: ${fmt(v, 3)} disaster-level days (average)` }))),
       el("div", { class: "month-labels" }, ...MONTHS.map((m, i) => el("span", { title: m }, i + 1)))) : null,
@@ -277,7 +302,9 @@ function renderHub(d) {
       onclick: () => { closeDrawer(); ask(`Why is the ${d.name} hub's weather disruption risk ${d.tier.toLowerCase()}?`); } },
       `Ask the agent about ${d.name.replace(/ \(.*\)/, "")}`));
 }
+/* Order of hazards in the evidence list (most severe per day first). */
 const HAZARD_ORDER = ["hurricane", "flood", "convective", "winter", "heat"];
+/* Client-friendly labels for the tool's technical evidence field names. */
 const EVIDENCE_LABELS = {
   "tropical_storms_within_150km_per_decade": "Tropical storms passing within 150 km (per decade)",
   "hurricanes_within_150km_per_decade": "Hurricanes passing within 150 km (per decade)",
@@ -293,11 +320,12 @@ const EVIDENCE_LABELS = {
   "heavy_snow_days_per_year(>=10cm)": "Heavy snow days per year (10 cm+)",
   "ice_days_per_year(observed)": "Freezing rain / sleet days per year",
   "annual_snowfall_cm": "Average annual snowfall (cm)",
-  "extreme_cold_days_per_year(<=-15C)": "Very cold days per year (−15 °C or below)",
-  "extreme_heat_days_per_year(>=38C)": "Very hot days per year (38 °C / 100 °F+)",
+  "extreme_cold_days_per_year(<=-15C)": "Very cold days per year (-15 \u00b0C or below)",
+  "extreme_heat_days_per_year(>=38C)": "Very hot days per year (38 \u00b0C / 100 \u00b0F+)",
 };
 
 /* ---------------- methodology ---------------- */
+/* Methodology window: definitions, severity shares, sources, limitations and the developer view switch. */
 $("method-btn").addEventListener("click", async () => {
   $("method-modal").classList.add("open");
   const body = $("method-body");
@@ -319,7 +347,7 @@ $("method-btn").addEventListener("click", async () => {
         el("input", { type: "checkbox", ...(state.dev ? { checked: true } : {}), onchange: (e) => setDev(e.target.checked) }),
         el("span", {}, "Show technical details on new answers (tool calls, number tracing, cost). For developers.")),
       ...(state.dev ? [el("p", { class: "faint", style: "font-size:12px;margin:8px 0 0" },
-        `Scoring ${m.scoring_version} · parameters ${m.params_version}`)] : []));
+        `Scoring ${m.scoring_version} \u00b7 parameters ${m.params_version}`)] : []));
   } catch (err) { body.replaceChildren(el("div", { class: "muted" }, err.message)); }
 });
 document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest(".modal").classList.remove("open")));
@@ -329,11 +357,14 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ---------------- chat ---------------- */
+/* Sample question buttons on the welcome screen. */
 function renderSamples() {
   $("samples").replaceChildren(...SAMPLES.map((q) => el("button", { class: "sample", onclick: () => ask(q), html: SPARK }, q)));
 }
 function scrollToBottom() { const s = $("scroll"); s.scrollTop = s.scrollHeight; }
 
+/* Send a question: show it in the thread, show a progress card with a timer, then replace it with the answer
+   (or an error card with Retry). Only one question can be in flight at a time. */
 async function ask(text) {
   text = (text || "").trim();
   if (!text || state.busy) return;
@@ -363,6 +394,7 @@ async function ask(text) {
   }
 }
 
+/* Error card; budget and access errors get no Retry button because retrying cannot help. */
 function errorCard(err, text) {
   let msg = err.message;
   if (err.status === 429 && /budget/i.test(msg)) msg = "Today's question budget has been used. The outlook, leaderboard and hub details still work.";
@@ -371,9 +403,12 @@ function errorCard(err, text) {
     retry ? el("div", { class: "confirm" }, el("button", { class: "btn", onclick: (e) => { e.target.closest(".card").remove(); ask(text); } }, "Retry")) : null);
 }
 
+/* The answer reports uncertainty; the badge shows the inverse as confidence (low uncertainty = high confidence). */
 const CONFIDENCE = { low: ["High confidence", "unc-low"], medium: ["Medium confidence", "unc-medium"],
   high: ["Low confidence", "unc-high"] };  // keyed by the answer's uncertainty level
 
+/* Answer card: confidence badge, the answer, any verification warning, confirm buttons for a stand-in
+   recommendation, follow-up suggestions, the sources panel and (developer view) technical details. */
 function answerCard(r) {
   const a = r.answer;
   const unc = a.uncertainty || { level: "medium", reasons: [] };
@@ -391,7 +426,7 @@ function answerCard(r) {
 
   if (r.validation_warnings && r.validation_warnings.length) {
     card.append(el("div", { class: "warnbox" }, el("strong", {}, "Some numbers couldn't be verified against the data: "),
-      r.validation_warnings.join(" · ")));
+      r.validation_warnings.join(" \u00b7 ")));
   }
   if (a.awaiting_user_confirmation) {
     const answerOnce = (text) => (e) => {
@@ -432,7 +467,7 @@ function sourcesPanel(r) {
         "Figures are historical frequencies, not forecasts. See Methodology for how scores are calculated.")));
 }
 
-/* Developer view (Methodology → "Show technical details", or ?dev=1): tools, number tracing, cost. */
+/* Developer view (Methodology, then "Show technical details", or ?dev=1): tools, number tracing, cost. */
 function provenance(r) {
   const a = r.answer, u = r.usage;
   const tools = r.trace.length ? r.trace.map((t) => el("div", { class: "tool-call" },
@@ -442,13 +477,13 @@ function provenance(r) {
     : [el("div", { class: "faint", style: "font-size:13px" }, "No tools needed. Answered from the conversation so far.")];
   const figs = a.figures || [];
   return el("details", { class: "prov dev" },
-    el("summary", { html: CHEVRON }, `Technical details · ${r.trace.length} tool call${r.trace.length === 1 ? "" : "s"} · ${figs.length} number${figs.length === 1 ? "" : "s"} traced`),
+    el("summary", { html: CHEVRON }, `Technical details \u00b7 ${r.trace.length} tool call${r.trace.length === 1 ? "" : "s"} \u00b7 ${figs.length} number${figs.length === 1 ? "" : "s"} traced`),
     el("div", { class: "prov-grid" },
       el("div", {}, el("h4", {}, "Tools called"), ...tools),
       figs.length ? el("div", {}, el("h4", {}, "Every number, traced to its source"),
         el("table", { class: "trace-table" }, el("tbody", {}, ...figs.map((f) => el("tr", {},
           el("td", {}, f.value_in_answer),
-          el("td", {}, el("div", { class: "src" }, f.field ? `${f.source_tool} → ${f.field}` : f.source_tool),
+          el("td", {}, el("div", { class: "src" }, f.field ? `${f.source_tool}.${f.field}` : f.source_tool),
             f.match !== "exact or rounded" ? el("div", { class: "faint", style: "font-size:11.5px" }, f.match) : null)))))) : null,
       el("div", {}, el("h4", {}, "Classification"), el("div", { class: "perf" },
         el("span", {}, "type ", el("b", {}, a.question_type)), el("span", {}, "measure ", el("b", {}, a.measure_used)),
@@ -463,6 +498,7 @@ function provenance(r) {
 
 /* ---------------- composer / header ---------------- */
 const input = $("input");
+/* The text box grows with its content up to 160 px, then scrolls. */
 input.addEventListener("input", () => {
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 160) + "px";
@@ -471,6 +507,7 @@ input.addEventListener("input", () => {
 if (window.matchMedia("(max-width: 640px)").matches) input.placeholder = "Ask about hub risk";
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); } });
 $("composer").addEventListener("submit", (e) => { e.preventDefault(); voice.stopListening(); const t = input.value; input.value = ""; input.style.height = "auto"; ask(t); });
+/* New chat: stop voice, forget the conversation on the server, and return to the welcome screen. */
 $("new-chat").addEventListener("click", async () => {
   if (state.busy) return;
   if (state.sessionId) { try { await api("/api/chat/reset", { method: "POST", body: JSON.stringify({ session_id: state.sessionId }) }); } catch { /* ignore */ } }
@@ -482,11 +519,13 @@ function updateNewChat() { $("new-chat").hidden = $("thread").children.length ==
 function focusComposer() {
   const c = $("composer"); c.classList.remove("flash"); void c.offsetWidth; c.classList.add("flash"); input.focus();
 }
+/* Turn the developer view on or off (applies to new answers). */
 function setDev(on) {
   state.dev = on; storage.set("wra_dev", on ? "1" : "0");
   loadHealth();
   $("dev-flag").hidden = !on;
 }
+/* Collapse or expand the outlook (it collapses automatically when a conversation starts). */
 function toggleOutlook(collapse) {
   const o = $("outlook");
   const c = collapse ?? !o.classList.contains("collapsed");
@@ -683,6 +722,7 @@ function loadAll() { loadOutlook(); loadBoard(); }
   loadAll();
 })();
 
+/* localStorage wrapper that never throws (private browsing can block storage). */
 function makeStorage() {
   return {
     get(k) { try { return window.localStorage.getItem(k); } catch { return null; } },

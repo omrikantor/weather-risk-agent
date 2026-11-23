@@ -1,14 +1,17 @@
 """find_nearest_hubs: locate a US place offline and recommend a stand-in hub.
 
-Steps (all deterministic, parameters in params.yaml -> stand_in):
+Steps (all deterministic; parameters in params.yaml, section stand_in):
 1. Normalize the query and extract an optional state ("Tampa, FL", "tampa florida").
-2. If it names one of our hubs -> status "is_hub".
-3. Resolve the place from the Census places table: exact name -> alias -> name prefix ->
-   close match (typos). Several matches: exactly one "major place" (population >= threshold)
-   -> use it; otherwise -> status "ambiguous" with candidates.
-4. Take the N nearest hubs; compare FEMA hazard-frequency profiles of the place's county and
-   each hub's county (similarity 0-100); recommend the best of
-   w_similarity * similarity + w_proximity * proximity.
+2. If it names one of our hubs, return status "is_hub" (unless another major place has the same name).
+3. Resolve the place from the Census places table, trying in order: exact name, known name pattern (alias),
+   name prefix, then close spelling (typos). With several matches, exactly one "major place" (population at
+   or above the threshold) is used; otherwise return status "ambiguous" with the options.
+4. If the nearest hub is farther than the network's widest gap between neighboring hubs, return status
+   "outside_coverage".
+5. Take the N nearest hubs, compare the FEMA hazard-frequency profile of the place's county with each hub's
+   county (similarity 0 to 100), and recommend the best of
+   w_similarity x similarity + w_proximity x proximity.
+The function returns a result for every input; the agent explains it and asks before analyzing a stand-in.
 """
 
 import difflib
@@ -23,6 +26,7 @@ from app.db import get_connection
 from app.geo import haversine_km
 from app.scoring.params import get_params
 
+# State names and postal codes, used to read the state from free text.
 STATES = {
     "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA", "colorado": "CO",
     "connecticut": "CT", "delaware": "DE", "district of columbia": "DC", "florida": "FL", "georgia": "GA",
@@ -39,8 +43,9 @@ STATE_CODES = set(STATES.values())
 
 
 def normalize(text: str) -> str:
+    """Lowercase, expand "St." and "Ft.", drop punctuation and parentheses, so names compare reliably."""
     t = text.lower().strip()
-    t = re.sub(r"\bst\.?\s+", "saint ", t)          # "St. Louis" / "st louis" -> "saint louis"
+    t = re.sub(r"\bst\.?\s+", "saint ", t)          # "St. Louis" and "st louis" both become "saint louis"
     t = re.sub(r"\bft\.?\s+", "fort ", t)
     t = re.sub(r"\([^)]*\)", " ", t)                # drop parentheticals, e.g. "(NYC metro)"
     t = re.sub(r"[^a-z0-9\s,-]", " ", t)
@@ -48,7 +53,8 @@ def normalize(text: str) -> str:
 
 
 def split_state(query: str) -> tuple[str, str | None]:
-    """'tampa, fl' / 'tampa fl' / 'tampa florida' -> ('tampa', 'FL')."""
+    """Split a query into place name and state: 'tampa, fl', 'tampa fl' and 'tampa florida' all give
+    ('tampa', 'FL'). Longer state names are tried first so "west virginia" is not read as "virginia"."""
     q = normalize(query)
     for name, code in sorted(STATES.items(), key=lambda kv: -len(kv[0])):
         if q.endswith(" " + name) or q.endswith("," + name):
@@ -59,8 +65,9 @@ def split_state(query: str) -> tuple[str, str | None]:
     return q.replace(",", " ").strip(), None
 
 
-@lru_cache
+@lru_cache   # built once per process (32,000 places), then every lookup is a dictionary access
 def _place_index(db_path: str) -> tuple[pd.DataFrame, dict, dict]:
+    """All places plus two lookup tables: normalized name to rows, and alternative name to rows."""
     conn = sqlite3.connect(db_path)
     places = pd.read_sql("SELECT geoid, name, full_name, state, lat, lon, population, aland_sqmi, county_fips "
                          "FROM places", conn)
@@ -72,11 +79,11 @@ def _place_index(db_path: str) -> tuple[pd.DataFrame, dict, dict]:
         exact.setdefault(key, []).append(i)
         alts = set()
         if key.startswith("urban "):
-            alts.add(key[6:])                        # "Urban Honolulu" -> honolulu
+            alts.add(key[6:])                        # "Urban Honolulu" is found as "honolulu"
         if "-" in key:
-            alts.add(key.split("-")[0].strip())      # "Nashville-Davidson" -> nashville
+            alts.add(key.split("-")[0].strip())      # "Nashville-Davidson" is found as "nashville"
         if key.endswith(" city") and len(key) > 5:
-            alts.add(key[:-5])                       # "Boise City" -> boise
+            alts.add(key[:-5])                       # "Boise City" is found as "boise"
         for a in alts:
             alias.setdefault(a, []).append(i)
     return places, exact, alias
@@ -84,7 +91,12 @@ def _place_index(db_path: str) -> tuple[pd.DataFrame, dict, dict]:
 
 @lru_cache
 def _profiles(db_path: str) -> tuple[pd.DataFrame, list[str]]:
-    """County hazard profiles: FEMA annualized frequency scaled by the national p-th percentile, capped at 1."""
+    """County hazard profiles: FEMA annualized frequency per hazard, scaled to 0 to 1.
+
+    Each hazard is divided by its national high percentile (profile_scale_percentile) and capped at 1, so
+    hazards with very different units (tornadoes per year, heat-wave days) can be compared on one scale and a
+    few extreme counties do not dominate.
+    """
     sp = get_params()["stand_in"]
     conn = sqlite3.connect(db_path)
     nri = pd.read_sql("SELECT county_fips, hazard, afreq FROM nri_county", conn)
@@ -104,12 +116,19 @@ def network_widest_gap_km(hubs: pd.DataFrame) -> float:
 
 
 def _hubs(conn) -> pd.DataFrame:
+    """All hubs with a normalized name for matching."""
     h = pd.read_sql("SELECT id, name, state, lat, lon, county_fips FROM hubs", conn)
     h["key"] = h["name"].map(normalize)
     return h
 
 
 def _pick(places: pd.DataFrame, idx: list[int], state: str | None, major: int) -> tuple[str, pd.DataFrame]:
+    """Decide among matching places: "none", "one" (a clear answer) or "many" (ask the user).
+
+    A single match within the given state is clear. With several matches, exactly one major place (population
+    at or above the threshold, 50,000 by default) is taken as the one meant, the way "Dallas" means Dallas, TX.
+    Otherwise the options are returned largest first.
+    """
     cand = places.iloc[sorted(set(idx))]
     if state:
         cand = cand[cand["state"] == state]
@@ -125,6 +144,10 @@ def _pick(places: pd.DataFrame, idx: list[int], state: str | None, major: int) -
 
 
 def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> dict:
+    """Resolve a free-text US place and recommend a stand-in hub (see the module description for the steps).
+
+    Returns a dict whose status is one of: is_hub, ambiguous, not_found, outside_coverage or matched.
+    """
     sp = get_params()["stand_in"]
     own = conn is None
     conn = conn or get_connection()
@@ -138,8 +161,8 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
         hit = hubs[(hubs["key"] == name) & ((hubs["state"] == state) if state else True)]
         if len(hit) == 1:
             h = hit.iloc[0]
-            # A bare hub name is the hub only if no other major place shares the name
-            # (e.g. "Portland" -> Portland, OR hub or Portland, ME?).
+            # A bare hub name is the hub only if no other major place shares the name (for example "Portland"
+            # could be the Portland, OR hub or Portland, ME).
             namesakes = places.iloc[exact.get(name, []) + alias.get(name, [])]
             others = namesakes[(namesakes["state"] != h["state"]) &
                                (namesakes["population"].fillna(0) >= sp["major_place_population"])]
@@ -151,6 +174,8 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
                 for r in others.sort_values("population", ascending=False).drop_duplicates("geoid").head(4).itertuples()]
             return {**result, "status": "ambiguous", "options": options,
                     "message": "The name matches one of our hubs and other major places; ask which one is meant."}
+        # Try exact names, then aliases, then names that start with the query ("san antonio" finds
+        # "san antonio city" style entries); stop at the first kind of match that gives a result.
         status, cand = "none", None
         for lookup in (exact.get(name, []), alias.get(name, []),
                        [i for k, v in exact.items() if k.startswith(name + " ") for i in v]):
@@ -159,6 +184,7 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
                 if status != "none":
                     break
         if status == "none":
+            # Spelling mistakes: closest names above a similarity cutoff (0.85 by default).
             close = difflib.get_close_matches(name, list(exact), n=5, cutoff=sp["fuzzy_cutoff"])
             if close:
                 status, cand = _pick(places, [i for k in close for i in exact[k]], state, sp["major_place_population"])
@@ -174,7 +200,8 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
                     "message": "Several places match; ask the user which one (or which state) they mean."}
 
         place = cand.iloc[0]
-        # The resolved place may be a hub city written differently (e.g. 'Saint Louis').
+        # The resolved place may be a hub city written differently (for example "Saint Louis" for St. Louis):
+        # same state, within 15 km and the same first word means it is the hub.
         same = hubs[(hubs["state"] == place["state"]) &
                     (haversine_km(place["lat"], place["lon"], hubs["lat"], hubs["lon"]) <= 15) &
                     (hubs["key"].map(lambda k: k.split()[0]) == normalize(place["name"]).split()[0])]
@@ -186,6 +213,7 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
         prof, hazards = _profiles(db_path)
         d = haversine_km(place["lat"], place["lon"], hubs["lat"].to_numpy(), hubs["lon"].to_numpy())
         near = hubs.assign(distance_km=d).sort_values(["distance_km", "id"]).head(sp["candidates"])
+        # Coverage limit computed from the network itself, so it adapts when hubs are added.
         coverage_km = network_widest_gap_km(hubs)
         if near["distance_km"].iloc[0] > coverage_km:
             n0 = near.iloc[0]
@@ -204,6 +232,7 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
             h_vec = prof.loc[h.county_fips]
             if p_vec is not None:
                 diff = (h_vec - p_vec)
+                # 100 = identical profiles; each point lost is an average gap of 0.01 across the 10 hazards.
                 similarity = round(100 * (1 - float(diff.abs().mean())), 1)
                 top = diff.abs().sort_values(ascending=False).head(2).index
                 differences = [{"hazard": z, "hub_level": round(float(h_vec[z]), 2),
@@ -211,6 +240,7 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
                                 "hub_is": "higher" if diff[z] > 0 else "lower"} for z in top if abs(diff[z]) > 0.05]
             else:
                 similarity, differences = None, []
+            # Proximity: 100 at the same spot, falling linearly to 0 at proximity_zero_km (500 km).
             proximity = round(100 * max(0.0, 1 - h.distance_km / sp["proximity_zero_km"]), 1)
             combined = round(sp["w_similarity"] * (similarity or 0) + sp["w_proximity"] * proximity, 1)
             candidates.append({"hub_id": h.id, "hub_name": h.name, "state": h.state,
@@ -218,6 +248,7 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
                                "proximity": proximity, "combined": combined, "largest_differences": differences})
 
         # Highest combined score; candidates within tie_margin of it count as tied, and the closest of those wins.
+        # County-level profiles are coarse while distance is exact, so distance decides near-ties.
         top = max(c["combined"] for c in candidates)
         best = min((c for c in candidates if top - c["combined"] <= sp["tie_margin"]),
                    key=lambda c: (c["distance_km"], c["hub_id"]))

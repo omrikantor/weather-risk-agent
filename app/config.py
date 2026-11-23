@@ -9,10 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
+    """Every setting can come from an environment variable of the same name in capitals (for example
+    OPENAI_API_KEY) or from the .env file. Environment variables win, which is how Render supplies secrets."""
+
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        extra="ignore",          # unknown variables in .env are ignored instead of failing at start
     )
 
     # LLM
@@ -33,7 +36,7 @@ class Settings(BaseSettings):
     daily_budget_usd: float = 3.0        # OpenAI spend cap per UTC day; adjustable at runtime via admin endpoint
     cors_origins: str = ""               # comma-separated; empty = same origin only
 
-    # Alerts
+    # Alerts (designed but not built; see DESIGN.md section 11)
     alert_webhook_url: str = ""
 
     # Storage
@@ -41,6 +44,7 @@ class Settings(BaseSettings):
 
     @property
     def db_file(self) -> Path:
+        """Absolute path of the SQLite database; a relative DB_PATH is taken from the repository root."""
         p = Path(self.db_path)
         return p if p.is_absolute() else REPO_ROOT / p
 
@@ -53,6 +57,6 @@ class Settings(BaseSettings):
         return REPO_ROOT / "data" / "raw"
 
 
-@lru_cache
+@lru_cache   # settings are read once per process
 def get_settings() -> Settings:
     return Settings()

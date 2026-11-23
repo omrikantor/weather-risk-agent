@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 
 def code_matches(given: str | None, expected: str) -> bool:
+    """Compare a supplied code with the expected one in constant time, so response timing does not reveal how
+    many leading characters were right."""
     return bool(given) and hmac.compare_digest(given.encode(), expected.encode())
 
 
@@ -20,6 +22,7 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def allow(self, key: str, now: float | None = None) -> bool:
+        """Record a request and return False if this key already made per_minute requests in the last 60 s."""
         now = time.time() if now is None else now
         with self._lock:
             q = self._hits[key]
@@ -32,7 +35,11 @@ class RateLimiter:
 
 
 class DailyBudget:
-    """Tracks OpenAI spend per UTC day. The cap can be changed at runtime (admin endpoint)."""
+    """Tracks OpenAI spend per UTC day. The cap can be changed at runtime (admin endpoint).
+
+    The count lives in memory, so a restart resets it. That is acceptable here because the provider account
+    also has its own spending limit; a multi-instance deployment would keep this count in a shared store.
+    """
 
     def __init__(self, cap_usd: float):
         self.cap_usd = cap_usd
@@ -41,21 +48,25 @@ class DailyBudget:
         self._lock = threading.Lock()
 
     def _roll(self) -> None:
+        """Start a new count when the UTC date changes."""
         today = datetime.now(timezone.utc).date().isoformat()
         if today != self._day:
             self._day, self._spent = today, 0.0
 
     def available(self) -> bool:
+        """True while today's spend is below the cap."""
         with self._lock:
             self._roll()
             return self._spent < self.cap_usd
 
     def add(self, cost: float) -> None:
+        """Add the cost of a finished chat turn."""
         with self._lock:
             self._roll()
             self._spent += cost
 
     def status(self) -> dict:
+        """Today's cap, spend and remaining budget (shown in /health)."""
         with self._lock:
             self._roll()
             return {"day_utc": self._day, "cap_usd": round(self.cap_usd, 2), "spent_usd": round(self._spent, 4),

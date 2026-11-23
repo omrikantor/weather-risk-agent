@@ -1,18 +1,25 @@
-"""Deterministic eval checks. Expected values come from an oracle that calls the same tool
-functions directly, so nothing is hard-coded and evals stay valid after a data rebuild."""
+"""Deterministic eval checks.
 
+Expected values come from an oracle that calls the same tool functions directly, so nothing is hard-coded and
+the evals stay valid after a data rebuild. A case in cases.yaml lists, per turn, what must happen: which tools
+are called with which arguments, which figures appear, in which order hubs are named, required and forbidden
+phrases, the question type and whether the answer waits for confirmation.
+"""
+
+import json
 import re
 from functools import lru_cache
-import json
 
 from app.agent.validator import _matches, numbers_in_text
 from app.tools.registry import execute
 
+# Path syntax used in cases.yaml: field names, list indexes [0] and list filters [hub_id=chicago].
 PATH_TOKEN = re.compile(r"([^.\[\]]+)|\[(\d+)\]|\[(\w+)=([^\]]+)\]")
 
 
 def get_path(obj, path: str):
-    """'hubs[0].hazards.flood.x', 'ranking[hub_id=chicago].value' -> value (KeyError if missing)."""
+    """Read a value by path, for example 'hubs[0].hazards.flood.x' or 'ranking[hub_id=chicago].value'.
+    Raises KeyError, IndexError or StopIteration when the path does not exist."""
     for name, idx, key, val in PATH_TOKEN.findall(path):
         if name:
             obj = obj[name]
@@ -25,6 +32,7 @@ def get_path(obj, path: str):
 
 @lru_cache(maxsize=256)
 def _oracle_cached(tool: str, args_json: str) -> dict:
+    """Run a tool once per distinct argument set (results are deterministic, so caching is safe)."""
     out = execute(tool, json.loads(args_json))
     if "error" in out:
         raise ValueError(f"oracle {tool} failed: {out}")
@@ -32,6 +40,7 @@ def _oracle_cached(tool: str, args_json: str) -> dict:
 
 
 def oracle(spec: dict) -> dict:
+    """The expected tool output for a spec {tool, args} from cases.yaml."""
     return _oracle_cached(spec["tool"], json.dumps(spec.get("args", {}), sort_keys=True))
 
 
@@ -41,6 +50,8 @@ def value_in_text(value: float, text: str) -> bool:
 
 
 def args_match(expected: dict, actual: dict) -> bool:
+    """Every expected argument must match; a value starting with "~" only has to appear inside the actual
+    text (for example "~tampa" matches "Tampa, FL"). Other text compares without regard to case."""
     for k, v in (expected or {}).items():
         a = actual.get(k)
         if isinstance(v, str) and v.startswith("~"):
@@ -55,11 +66,13 @@ def args_match(expected: dict, actual: dict) -> bool:
 
 
 def hub_name_variants(name: str) -> list[str]:
-    base = re.sub(r"\s*\(.*\)", "", name)          # "Newark (NYC metro)" -> "Newark"
+    """Ways a hub name may be written in an answer ("Newark (NYC metro)" may appear as "Newark")."""
+    base = re.sub(r"\s*\(.*\)", "", name)
     return [base, base.replace("St. ", "Saint "), base.replace("Saint ", "St. ")]
 
 
 def first_position(text: str, name: str) -> int | None:
+    """Where a hub is first mentioned in the text (any variant), or None if it is not mentioned."""
     low = text.lower()
     pos = [low.find(v.lower()) for v in hub_name_variants(name)]
     pos = [p for p in pos if p >= 0]
@@ -76,7 +89,7 @@ def check_turn(turn: dict, result: dict) -> list[tuple[str, bool, str]]:
     # Global quality gates
     out.append(("answered", result["stopped_reason"] == "answered", result["stopped_reason"]))
     out.append(("validation_passed", not result["validation_warnings"], "; ".join(result["validation_warnings"])[:200]))
-    dashes = re.findall(r"[—–…]", text)
+    dashes = re.findall("[\u2014\u2013\u2026]", text)   # em dash, en dash, ellipsis character
     out.append(("no_dashes", not dashes, "".join(dashes)))
 
     for exp in turn.get("tools", []):
@@ -106,6 +119,7 @@ def check_turn(turn: dict, result: dict) -> list[tuple[str, bool, str]]:
         ok = any(value_in_text(v, text) for v in nums)
         out.append((f"figure:{specs[0]['path']}", ok, f"expected one of {expected}"))
 
+    # Ranking order: the expected top hubs must all be named, in the same order as the oracle ranking.
     if "order" in turn:
         o = turn["order"]
         names = [h["name"] for h in get_path(oracle(o), o["list"])[: o["top"]]]

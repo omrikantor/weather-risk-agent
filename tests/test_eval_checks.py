@@ -47,7 +47,7 @@ def test_order_and_tool_checks_pass_on_a_correct_answer():
 def test_wrong_order_and_dashes_fail():
     turn = yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))["cases"][0]["turns"][0]
     names = [h["name"] for h in oracle(turn["order"])["ranking"][:3]]
-    text = f"{names[2]} — then {names[1]} and {names[0]}"
+    text = f"{names[2]} \u2014 then {names[1]} and {names[0]}"   # \u2014 is an em dash, which must fail
     failed = {c for c, ok, _ in check_turn(turn, fake_result(text)) if not ok}
     assert {"order", "no_dashes", "tool:rank_hubs"} <= failed
 

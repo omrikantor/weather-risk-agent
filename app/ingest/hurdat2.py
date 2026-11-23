@@ -13,15 +13,18 @@ from app.scoring.params import get_params
 
 
 def _parse_coord(token: str) -> float:
+    """'27.8N' becomes 27.8 and '96.8W' becomes -96.8 (south and west are negative)."""
     token = token.strip()
     value = float(token[:-1])
     return -value if token[-1] in "SW" else value
 
 
 def parse(text: str, first_year: int) -> list[tuple]:
+    """Parse a HURDAT2 file into (storm_id, name, time, status, lat, lon, wind) rows from first_year onward."""
     rows, lines, i = [], text.splitlines(), 0
     while i < len(lines):
         header = [t.strip() for t in lines[i].split(",")]
+        # A storm header has the number of fix lines that follow in its third field.
         if len(header) < 3 or not header[2].isdigit():
             i += 1
             continue
@@ -33,13 +36,14 @@ def parse(text: str, first_year: int) -> list[tuple]:
                 continue
             d, hhmm, status = t[0], t[1].zfill(4), t[3]
             dt = f"{d[:4]}-{d[4:6]}-{d[6:8]}T{hhmm[:2]}:{hhmm[2:]}:00Z"
-            wind = float(t[6]) if t[6] not in ("", "-999", "-99") else None
+            wind = float(t[6]) if t[6] not in ("", "-999", "-99") else None   # -999 and -99 mean unknown
             rows.append((storm_id, name, dt, status, _parse_coord(t[4]), _parse_coord(t[5]), wind))
         i += 1 + n
     return rows
 
 
 def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
+    """Download (or read cached) Atlantic and Northeast Pacific files and replace storm_tracks."""
     p = get_params()["event_rates"]["hurricane"]
     raw_dir = get_settings().raw_dir / "hurdat2"
     raw_dir.mkdir(parents=True, exist_ok=True)
