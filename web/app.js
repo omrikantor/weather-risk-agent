@@ -82,6 +82,15 @@ function oncePer(v) {
   if (!v) return "none in the data";
   return v < 1 ? `once every ${fmt(1 / v, 1)} yrs` : `${fmt(v)} days/yr`;
 }
+/* How often one calendar month reaches disaster level, in words instead of a small decimal: 0.23 expected
+   disaster-level days in November becomes "about once every 4 Novembers". Whole years only, because 20 years
+   of data cannot support finer precision. The exact value stays available in the tooltip. */
+function monthlyDisasterText(v, monthName) {
+  if (!v) return "none in the records";
+  if (v >= 1) return `${fmt(v, 1)} days per ${monthName} on average`;
+  const every = Math.round(1 / v);
+  return every <= 1 ? `in most ${monthName}s` : `about once every ${every} ${monthName}s`;
+}
 function monthYear(iso) { const [y, m] = iso.split("-"); return `${MONTHS[+m - 1].slice(0, 3)} ${y}`; }
 const pct = (v) => (v == null ? "n/a" : `${Math.round(v * 100)}%`);
 function hzChip(h, text) { return el("span", { class: `hz-chip hz-${h}`, html: ICON[h] }, text || HAZARDS[h].label); }
@@ -185,7 +194,10 @@ function outlookCard(h, monthName) {
     hzChip(z, HAZARDS[z].short),
     el("div", { style: "margin-top:10px" }, el("div", { class: "pct num" }, pct(h.p_at_least_one_warning_day)),
       el("div", { class: "pct-label" }, `of ${monthName}s had a ${HAZARDS[z].short.toLowerCase()} warning (${h.years_with_warning} of ${h.years_observed} yrs)`)),
-    el("div", { class: "meta" }, el("span", {}, "Disaster-level days"), el("span", { class: "num" }, fmt(h.expected_severe_days_this_month, 2))),
+    // How often this month reaches disaster level: the measure that orders the cards (see loadOutlook).
+    el("div", { class: "meta", title: `${fmt(h.expected_severe_days_this_month, 2)} expected disaster-level days `
+      + `in ${monthName}, 2006 to 2025` }, el("span", {}, "Disaster level"),
+      el("span", { class: "meta-value" }, monthlyDisasterText(h.expected_severe_days_this_month, monthName))),
     events.length ? el("div", { class: "events", title: events.join(" \u00b7 ") }, events.join(" \u00b7 ")) : null);
   return card;
 }
@@ -295,7 +307,7 @@ function renderHub(d) {
         el("span", { class: "num faint", style: "width:42px;text-align:right" }, pct(c.share_of_total)))))),
     months.length ? el("div", { class: "block" }, el("h4", {}, `Disaster-level days by month \u00b7 peak in ${d.peak_month}`),
       el("div", { class: "months" }, ...months.map((v, i) => el("div", { class: `b${i === peakIdx ? " peak" : ""}`,
-        style: `height:${Math.max((v / mMax) * 100, 2)}%`, title: `${MONTHS[i]}: ${fmt(v, 3)} disaster-level days (average)` }))),
+        style: `height:${Math.max((v / mMax) * 100, 2)}%`, title: `${MONTHS[i]}: disaster level ${monthlyDisasterText(v, MONTHS[i])} (${fmt(v, 3)} days on average)` }))),
       el("div", { class: "month-labels" }, ...MONTHS.map((m, i) => el("span", { title: m }, i + 1)))) : null,
     el("div", { class: "block" }, el("h4", {}, "The evidence, hazard by hazard"), ...evidence),
     d.recent_fema_major_disasters_in_county.length ? el("div", { class: "block" }, el("h4", {}, "Recent FEMA major disasters (county)"),
