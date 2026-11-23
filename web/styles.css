@@ -378,3 +378,17 @@ details.prov[open] summary svg { transform: rotate(90deg); }
   .samples { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------------- voice ---------------- */
+.mic-btn { color: var(--text-2); flex-shrink: 0; }
+.mic-btn.listening { color: var(--on-accent); background: var(--high); border-color: var(--high); animation: mic-pulse 1.4s ease-in-out infinite; }
+.mic-btn.listening:hover { background: var(--high); }
+@keyframes mic-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--high) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--high) 0%, transparent); } }
+#speak-toggle .waves { opacity: .35; }
+#speak-toggle.on { color: var(--accent); background: var(--accent-soft); }
+#speak-toggle.on .waves { opacity: 1; }
+.read-btn { margin-left: auto; width: 28px; height: 28px; color: var(--text-3); }
+.read-btn:hover, .read-btn.on { color: var(--accent); }
+.read-btn.on { background: var(--accent-soft); }
+.composer-hint.hint-error { color: var(--high); }

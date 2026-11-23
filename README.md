@@ -7,6 +7,7 @@ What you can do in the web app:
 - Ask questions in a chat, for example "Which Midwest hubs are most exposed to winter disruption?", "Compare Miami and Houston for hurricanes and flooding", "What percentage of days in Denver last year had snowfall?" or "Why is the Dallas hub high?".
 - See this month's seasonal outlook (which hubs historically face the most disruption in the current month).
 - Browse the leaderboard of all 47 hubs by hazard and region, and open any hub to see the evidence behind its score.
+- Use voice: click the microphone to speak a question (Chrome, Edge and Safari), check the text and press Enter. Turn on "Read aloud" to hear answers, or click the speaker icon on any answer.
 
 ## Documentation
 

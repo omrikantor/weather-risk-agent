@@ -96,6 +96,7 @@ We considered shortening answers to reduce latency. The user preferred complete 
 
 - **Plain HTML, CSS and JavaScript** without a framework or build step. The UI is small, and a reviewer can read it directly. Libraries (markdown rendering, HTML sanitizing) and the font are stored in the repository, so the page works without external CDNs.
 - **Client view by default, developer view on request.** Early versions showed tool traces and token counts to everyone. The audience is a logistics analyst, so technical details moved behind a developer toggle, which is still available for the demonstration.
+- **Voice in the browser, not on the server.** The Web Speech API gives speech input and read-aloud with no new dependency, no server change and no cost, which fit the time left. A server-side speech model would give consistent quality across browsers and keep audio in-house, but it adds cost and a new service. Spoken questions are placed in the input box instead of being sent automatically, because a misheard hub name would lead to a confident answer about the wrong place.
 - **Seasonal outlook** was added because "what should we prepare for this month?" is a practical question for operations, and it reuses the same warning data. It is labeled as historical frequency, not a forecast.
 
 ## D12. Protecting a public deployment

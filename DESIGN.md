@@ -39,7 +39,7 @@ flowchart LR
 
 | Component | Responsibility | Talks to |
 |---|---|---|
-| Web UI (`web/`) | Chat, seasonal outlook, leaderboard, hub details, methodology. Plain HTML, CSS and JavaScript with no build step | FastAPI over HTTP/JSON |
+| Web UI (`web/`) | Chat (typed or spoken), read-aloud, seasonal outlook, leaderboard, hub details, methodology. Plain HTML, CSS and JavaScript with no build step | FastAPI over HTTP/JSON |
 | FastAPI (`app/api/main.py`) | Chat endpoint, data endpoints, health check, access code, rate limit, daily spend cap | Agent, tools |
 | Agent (`app/agent/agent.py`) | Runs the conversation: sends the question to the model, executes the tools it asks for, validates the final answer | OpenAI (through `llm_client.py` only), tools, validator |
 | Tools (`app/tools/`) | Eight deterministic functions: rank, compare, explain a hub, weather statistics, seasonal outlook, methodology, list hubs, find a stand-in hub | SQLite |
@@ -229,6 +229,12 @@ Examples: Tampa to Orlando, Charleston SC to Jacksonville (coastal, rather than 
 The leaderboard, outlook and hub panel use the same tool functions as the agent, so the numbers on screen and in answers always agree.
 
 **Protection for a public URL**: an access code on every `/api/*` call, 10 chat messages per minute per IP address, and a daily OpenAI spend cap (3 USD by default, adjustable at runtime) after which chat answers with a clear message while the data views keep working.
+
+**Voice**: voice runs entirely in the browser through the Web Speech API, so the server, the agent and the cost are unchanged.
+
+- *Speaking a question*: the microphone button turns speech into text in the input box. The text is not sent automatically: speech recognition sometimes mishears place names, and a wrong hub name would produce a confident answer to the wrong question, so the user checks the text and presses Enter. The button is hidden in browsers without speech recognition (for example Firefox), and errors such as a blocked microphone get a plain message.
+- *Reading answers aloud*: a "Read aloud" switch reads each new answer, and a speaker button on every answer reads that one. The spoken text is built from the displayed answer: one sentence per paragraph, list item and table row, without markdown symbols, and "/yr" is read as "per year". It is spoken a few sentences at a time because Chrome stops long utterances after about 15 seconds. Reading stops when a new question is asked or a new chat starts.
+- *Privacy*: in Chrome, speech recognition sends the audio to Google's speech service. A production deployment that must keep audio in-house would use a self-hosted speech model instead.
 
 **Client view and developer view**: by default the interface shows what a client needs (the answer, a confidence badge, "Sources and reliability" with a confirmation that all figures were checked against the data, plain-language evidence in the hub panel). Tool calls, field-level number tracing, tokens and cost are available in a developer view (Methodology, "Show technical details", or `?dev=1`) for demonstrations.
 

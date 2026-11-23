@@ -21,6 +21,7 @@ const ICON = {
 };
 const SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const SPEAKER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>';
 const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
 const QTYPE = { ranking: "Ranking", comparison: "Comparison", statistic: "Statistic", explanation: "Explanation",
   methodology: "Methodology", stand_in: "Stand-in hub", clarification: "Clarification", out_of_scope: "Out of scope" };
@@ -40,7 +41,7 @@ const urlDev = new URLSearchParams(location.search).get("dev");
 if (urlDev !== null) storage.set("wra_dev", urlDev === "0" ? "0" : "1");
 const state = {
   code: storage.get("wra_code") || "", sessionId: null, busy: false, dev: storage.get("wra_dev") === "1",
-  month: new Date().getMonth() + 1, measure: "severe_disruption_days", hazard: "all", region: "",
+  speak: storage.get("wra_speak") === "1", month: new Date().getMonth() + 1, measure: "severe_disruption_days", hazard: "all", region: "",
 };
 
 /* ---------------- helpers ---------------- */
@@ -337,6 +338,7 @@ async function ask(text) {
   text = (text || "").trim();
   if (!text || state.busy) return;
   state.busy = true; $("send").disabled = true;
+  voice.stopListening(); voice.stopSpeaking();
   $("welcome").style.display = "none";
   if (!$("outlook").classList.contains("collapsed")) toggleOutlook(true);
   $("thread").append(el("div", { class: "msg-user" }, text));
@@ -350,7 +352,9 @@ async function ask(text) {
   try {
     const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ message: text, session_id: state.sessionId }) });
     state.sessionId = r.session_id;
-    thinking.replaceWith(answerCard(r));
+    const card = answerCard(r);
+    thinking.replaceWith(card);
+    if (state.speak) voice.speakCard(card);
     loadHealth();
   } catch (err) {
     thinking.replaceWith(errorCard(err, text));
@@ -380,7 +384,9 @@ function answerCard(r) {
       el("div", { class: "ai-avatar", html: SPARK }),
       showConf ? el("span", { class: `badge ${confClass}`, title: (unc.reasons || []).join("\n") }, confLabel) : null,
       state.dev ? el("span", { class: "badge" }, QTYPE[a.question_type] || a.question_type) : null,
-      state.dev && MEASURE[a.measure_used] ? el("span", { class: "badge" }, MEASURE[a.measure_used]) : null),
+      state.dev && MEASURE[a.measure_used] ? el("span", { class: "badge" }, MEASURE[a.measure_used]) : null,
+      voice.canSpeak ? el("button", { class: "btn ghost icon-btn read-btn", type: "button", "aria-label": "Read this answer aloud",
+        title: "Read aloud", html: SPEAKER, onclick: (e) => voice.toggleCard(e.currentTarget.closest(".card")) }) : null),
     renderMarkdown(a.answer_markdown));
 
   if (r.validation_warnings && r.validation_warnings.length) {
@@ -464,10 +470,11 @@ input.addEventListener("input", () => {
 });
 if (window.matchMedia("(max-width: 640px)").matches) input.placeholder = "Ask about hub risk";
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); } });
-$("composer").addEventListener("submit", (e) => { e.preventDefault(); const t = input.value; input.value = ""; input.style.height = "auto"; ask(t); });
+$("composer").addEventListener("submit", (e) => { e.preventDefault(); voice.stopListening(); const t = input.value; input.value = ""; input.style.height = "auto"; ask(t); });
 $("new-chat").addEventListener("click", async () => {
   if (state.busy) return;
   if (state.sessionId) { try { await api("/api/chat/reset", { method: "POST", body: JSON.stringify({ session_id: state.sessionId }) }); } catch { /* ignore */ } }
+  voice.stopSpeaking(); voice.stopListening();
   state.sessionId = null; $("thread").replaceChildren(); $("welcome").style.display = ""; toggleOutlook(false);
   updateNewChat(); $("scroll").scrollTo({ top: 0, behavior: "smooth" }); focusComposer();
 });
@@ -493,6 +500,155 @@ $("outlook-toggle").addEventListener("click", () => toggleOutlook());
 $("m-prev").addEventListener("click", () => { state.month = ((state.month + 10) % 12) + 1; toggleOutlook(false); loadOutlook(); });
 $("m-next").addEventListener("click", () => { state.month = (state.month % 12) + 1; toggleOutlook(false); loadOutlook(); });
 $("board-toggle").addEventListener("click", () => document.body.classList.toggle("show-board"));
+
+/* ---------------- voice (browser Web Speech API, no server involvement) ----------------
+   Speech to text: SpeechRecognition (Chrome, Edge, Safari). The transcript goes into the input box and is NOT sent
+   automatically, so the user can check place names first. Hidden when the browser does not support it.
+   Text to speech: speechSynthesis (all modern browsers). Reads a plain-text version of an answer. */
+const voice = (() => {
+  const SR = () => window.SpeechRecognition || window.webkitSpeechRecognition;  // looked up on use
+  const synth = () => window.speechSynthesis;
+  const canListen = !!SR() && window.isSecureContext;
+  const canSpeak = !!synth() && typeof window.SpeechSynthesisUtterance === "function";
+  const hint = $("composer-hint");
+  const defaultHint = hint.textContent;
+  let rec = null;          // active recognition session
+  let hintTimer = null;
+  let speakingCard = null; // answer card currently being read
+
+  function setHint(text, isError = false) {
+    clearTimeout(hintTimer);
+    hint.textContent = text; hint.classList.toggle("hint-error", isError);
+    if (isError) hintTimer = setTimeout(() => setHint(defaultHint), 6000);
+  }
+  function setMic(on) {
+    $("mic").classList.toggle("listening", on);
+    $("mic").setAttribute("aria-pressed", on ? "true" : "false");
+    $("mic").setAttribute("aria-label", on ? "Stop listening" : "Speak your question");
+    $("mic").title = on ? "Stop listening" : "Speak your question";
+  }
+  const MIC_ERRORS = {
+    "not-allowed": "Microphone access is blocked. Allow it in the browser's site settings to use voice.",
+    "service-not-allowed": "Voice input is not available in this browser.",
+    "audio-capture": "No microphone was found.",
+    "no-speech": "Didn't catch that. Click the mic and try again.",
+    "network": "Voice input needs an internet connection.",
+    "language-not-supported": "Voice input is not available for US English in this browser.",
+  };
+
+  function startListening() {
+    stopSpeaking();
+    const Rec = SR(); const r = new Rec();
+    r.lang = "en-US"; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+    const base = input.value.trim() ? input.value.trim() + " " : "";
+    r.onresult = (e) => {
+      if (rec !== r) return;
+      let text = "";
+      for (const res of e.results) text += res[0].transcript;
+      input.value = base + text.trimStart();
+      input.dispatchEvent(new Event("input"));
+    };
+    r.onerror = (e) => {
+      if (rec === r && e.error !== "aborted") setHint(MIC_ERRORS[e.error] || "Voice input stopped. Please try again.", true);
+    };
+    r.onend = () => {
+      if (rec !== r) return;
+      rec = null; setMic(false);
+      if (!hint.classList.contains("hint-error")) setHint(input.value.trim() ? "Check the text, then press Enter to send" : defaultHint);
+      input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+    };
+    rec = r; setMic(true); setHint("Listening. Click the mic again to stop.");
+    try { r.start(); } catch { rec = null; setMic(false); setHint("Voice input could not start. Please try again.", true); }
+  }
+  function stopListening() {
+    if (!rec) return;
+    const r = rec; rec = null; setMic(false); setHint(defaultHint);
+    try { r.abort(); } catch { /* already stopped */ }
+  }
+
+  /* Plain text for speech: one sentence per paragraph, list item and table row; no markdown symbols. */
+  function speechText(root) {
+    const out = [];
+    const walk = (n) => {
+      if (n.nodeType === 3) { out.push(n.textContent); return; }
+      if (n.nodeType !== 1) return;
+      if (n.tagName === "TR") {
+        out.push(" " + [...n.cells].map((c) => c.textContent.trim()).filter(Boolean).join(", ") + ". ");
+        return;
+      }
+      n.childNodes.forEach(walk);
+      if (/^(P|LI|H[1-6]|UL|OL|TABLE|BLOCKQUOTE|BR)$/.test(n.tagName)) out.push(". ");
+    };
+    walk(root);
+    return out.join("")
+      .replace(/\/yr\b/g, " per year").replace(/\s+/g, " ")
+      .replace(/([.!?:;,])\s*(\.\s*)+/g, "$1 ").replace(/\s+\./g, ".").replace(/(\.\s*){2,}/g, ". ").trim();
+  }
+  /* Chrome cuts off long utterances after about 15 seconds, so speak a few sentences at a time. */
+  function chunks(text) {
+    const parts = text.split(/(?<=[.!?])\s+/);  // split only at sentence ends, never inside numbers like 1.91
+    const out = [];
+    for (const p of parts) {
+      const s = p.trim(); if (!s) continue;
+      if (out.length && (out[out.length - 1] + " " + s).length < 220) out[out.length - 1] += " " + s; else out.push(s);
+    }
+    return out;
+  }
+  function pickVoice() {
+    const vs = synth().getVoices().filter((v) => v.lang === "en-US" || v.lang === "en_US");
+    return vs.find((v) => /natural|aria|jenny|google us english|samantha/i.test(v.name)) || vs[0] || null;
+  }
+  function markCard(card, on) {
+    const b = card && card.querySelector(".read-btn");
+    if (!b) return;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-label", on ? "Stop reading" : "Read this answer aloud");
+    b.title = on ? "Stop reading" : "Read aloud";
+  }
+  function speakCard(card) {
+    if (!canSpeak || !card) return;
+    const md = card.querySelector(".md");
+    if (!md) return;
+    stopSpeaking();
+    const pieces = chunks(speechText(md));
+    if (!pieces.length) return;
+    speakingCard = card; markCard(card, true);
+    const v = pickVoice();
+    pieces.forEach((text, i) => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-US"; if (v) u.voice = v;
+      if (i === pieces.length - 1) u.onend = () => { if (speakingCard === card) { speakingCard = null; markCard(card, false); } };
+      synth().speak(u);
+    });
+  }
+  function stopSpeaking() {
+    if (!canSpeak) return;
+    if (speakingCard) { markCard(speakingCard, false); speakingCard = null; }
+    synth().cancel();
+  }
+  function toggleCard(card) { if (speakingCard === card) stopSpeaking(); else speakCard(card); }
+  function setAutoSpeak(on) {
+    state.speak = on; storage.set("wra_speak", on ? "1" : "0");
+    const b = $("speak-toggle");
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+    b.title = on ? "Reading new answers aloud (click to turn off)" : "Read new answers aloud";
+    if (!on) stopSpeaking();
+  }
+
+  if (canListen) {
+    $("mic").hidden = false;
+    $("mic").addEventListener("click", () => (rec ? rec.stop() : startListening()));
+  }
+  if (canSpeak) {
+    $("speak-toggle").hidden = false;
+    $("speak-toggle").addEventListener("click", () => setAutoSpeak(!state.speak));
+    setAutoSpeak(state.speak);
+    synth().getVoices();  // starts loading the voice list (Chrome loads it asynchronously)
+  }
+  window.addEventListener("pagehide", () => { stopSpeaking(); stopListening(); });
+  return { canListen, canSpeak, speakCard, toggleCard, stopSpeaking, stopListening, speechText };
+})();
+
 
 /* ---------------- boot ---------------- */
 function loadAll() { loadOutlook(); loadBoard(); }
