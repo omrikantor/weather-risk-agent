@@ -104,5 +104,14 @@ def test_candidate_invariants(q):
     assert r["far_away"] == (next(x for x in c if x["hub_id"] == r["recommended_hub_id"])["distance_km"] > 250)
 
 
+def test_near_tie_goes_to_closer_hub():
+    r = find_nearest_hubs("Tucson")
+    best = next(c for c in r["candidates"] if c["hub_id"] == r["recommended_hub_id"])
+    top = max(c["combined"] for c in r["candidates"])
+    tied = [c for c in r["candidates"] if top - c["combined"] <= 2.0]
+    assert best["distance_km"] == min(c["distance_km"] for c in tied)
+    assert r["recommended_hub_id"] == "phoenix"
+
+
 def test_deterministic():
     assert find_nearest_hubs("Spokane, WA") == find_nearest_hubs("Spokane, WA")

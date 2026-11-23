@@ -211,7 +211,10 @@ def find_nearest_hubs(location: str, conn: sqlite3.Connection | None = None) -> 
                                "distance_km": round(float(h.distance_km)), "similarity": similarity,
                                "proximity": proximity, "combined": combined, "largest_differences": differences})
 
-        best = max(candidates, key=lambda c: (c["combined"], -c["distance_km"]))
+        # Highest combined score; candidates within tie_margin of it count as tied, and the closest of those wins.
+        top = max(c["combined"] for c in candidates)
+        best = min((c for c in candidates if top - c["combined"] <= sp["tie_margin"]),
+                   key=lambda c: (c["distance_km"], c["hub_id"]))
         caveats = ["The place's county is approximated by the nearest county center; hazard profiles are "
                    "county-level FEMA National Risk Index frequencies."]
         if best["distance_km"] > sp["far_caveat_km"]:

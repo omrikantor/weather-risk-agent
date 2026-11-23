@@ -164,6 +164,9 @@ stand_in:
   w_proximity: 0.2
   proximity_zero_km: 500          # proximity score falls linearly from 100 at 0 km to 0 here
   far_caveat_km: 250
+  # Combined scores this close are not a meaningful difference (county-level hazard profiles are
+  # coarse); distance is measured exactly, so the closer hub wins.
+  tie_margin: 2.0
   # Every mainland US place is within 596 km of a hub; Alaska, Hawaii and Puerto Rico are all
   # >= 1,050 km away. Beyond this distance no hub is a meaningful stand-in.
   coverage_max_km: 800
