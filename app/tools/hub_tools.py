@@ -524,8 +524,9 @@ def get_live_warnings(args: s.LiveWarningsInput, conn) -> dict:
         "warnings": [{"hub_id": w["hub_id"], "name": w["hub_name"], "state": w["state"],
                       "region": regions.get(w["hub_id"]), "warning": w["event"], "hazard": w["hazard"],
                       "until": _readable_local_time(w["ends"])} for w in warnings],
-        "last_checked": f"{last['checked_at'][:16].replace('T', ' ')} UTC" if last else None,
-        "hubs_checked": last["hubs_checked"] if last else 0,
+        # .get() so an incomplete check record degrades to "unknown" instead of failing the whole answer.
+        "last_checked": f"{last['checked_at'][:16].replace('T', ' ')} UTC" if last and last.get("checked_at") else None,
+        "hubs_checked": (last or {}).get("hubs_checked", 0),
         "note": "Live National Weather Service warnings at each hub's location, checked every 15 minutes. "
                 "They do not change the historical risk scores or rankings.",
         "source": "National Weather Service active alerts (live, checked every 15 minutes)",

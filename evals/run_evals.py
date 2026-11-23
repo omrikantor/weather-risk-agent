@@ -38,6 +38,7 @@ def run_case(agent: Agent, case: dict) -> dict:
         latency += r["latency_ms"]
         turns.append({"message": turn["message"], "checks": checks, "passed": all(c[1] for c in checks),
                       "answer": r["answer"]["answer_markdown"], "tools": [t["tool"] for t in r["trace"]],
+                      "uncertainty": r["answer"].get("uncertainty"),
                       "latency_ms": r["latency_ms"], "cost_usd": r["usage"]["cost_usd"],
                       "tokens": {k: r["usage"][k] for k in ("input_tokens", "cached_tokens", "output_tokens")}})
     return {"id": case["id"], "category": case["category"], "passed": all(t["passed"] for t in turns),

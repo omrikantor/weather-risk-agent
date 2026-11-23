@@ -28,9 +28,21 @@ class HubMention(_Strict):
 
 
 class Uncertainty(_Strict):
-    """How certain the answer is, with reasons. The UI shows it as a confidence badge."""
-    level: Literal["low", "medium", "high"]
-    reasons: list[str]
+    """How UNCERTAIN the answer is, with reasons. The UI shows the inverse as a confidence badge (low
+    uncertainty = "High confidence").
+
+    The descriptions matter: without them the model read "level: high" as high confidence and labeled
+    well-supported answers as uncertain, so the badge said the opposite of what was meant.
+    """
+    level: Literal["low", "medium", "high"] = Field(
+        description="How UNCERTAIN the answer is (this is not confidence). low = based on complete measured data "
+                    "or clear tool results (a few days filled with modeled data do not lower it), shown to the user "
+                    "as High confidence; medium = material caveats, such as overlapping 90% ranges, modeled data for "
+                    "a large share of the period, or a stand-in hub; high = weak "
+                    "evidence, such as large data gaps, very few events, or a question the data cannot fully "
+                    "answer, shown as Low confidence.")
+    reasons: list[str] = Field(description="Short reasons for the level, consistent with it (strengths for low, "
+                                           "caveats for medium or high).")
 
 
 class FinalAnswer(_Strict):

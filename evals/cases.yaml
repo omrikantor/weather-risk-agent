@@ -7,6 +7,7 @@
 #   order:        oracle-produced hub list whose names must appear in this order in the answer
 #   mention / not_mention: case-insensitive regexes
 #   question_type: allowed question types;  confirm: expected awaiting_user_confirmation
+#   uncertainty:  allowed uncertainty levels (low = solid data, shown as High confidence)
 #   no_tools: true when the answer should need no tool calls
 # Oracles call the same tool functions directly, so expected values are never hard-coded.
 # Every turn also gets the global checks: answered, no validation warnings, no dashes/ellipses.
@@ -81,6 +82,7 @@ cases:
               - {tool: get_weather_stat, args: {hub_id: denver, metric: trace_snow_day, start_date: "2025-01-01", end_date: "2025-12-31"}, path: percent_of_days}
         mention: [cm]
         question_type: [statistic]
+        uncertainty: [low, medium]      # a fully measured year is not highly uncertain
 
   - id: buffalo_winter_warnings_2022
     category: statistic
@@ -89,6 +91,7 @@ cases:
         tools: [{name: get_weather_stat, args: {hub_id: buffalo, metric: warning_days_winter}}]
         figures:
           - {tool: get_weather_stat, args: {hub_id: buffalo, metric: warning_days_winter, start_date: "2022-01-01", end_date: "2022-12-31"}, path: count}
+        uncertainty: [low, medium]      # a count from the complete warning archive
 
   - id: dallas_why
     category: explanation

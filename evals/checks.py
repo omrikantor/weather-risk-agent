@@ -136,4 +136,9 @@ def check_turn(turn: dict, result: dict) -> list[tuple[str, bool, str]]:
     if "confirm" in turn:
         out.append(("confirm", a["awaiting_user_confirmation"] == turn["confirm"],
                     str(a["awaiting_user_confirmation"])))
+    # Allowed uncertainty levels, for answers whose data is clearly solid or clearly weak. Added after the model
+    # was found labeling a fully measured statistic as highly uncertain (it read the level as confidence).
+    if "uncertainty" in turn:
+        level = (a.get("uncertainty") or {}).get("level")
+        out.append(("uncertainty", level in turn["uncertainty"], str(level)))
     return out

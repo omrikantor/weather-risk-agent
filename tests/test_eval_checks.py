@@ -57,3 +57,14 @@ def test_all_cases_are_well_formed():
     assert len(cases) >= 15 and len({c["id"] for c in cases}) == len(cases)
     for c in cases:
         assert c["turns"] and all("message" in t for t in c["turns"])
+
+
+def test_uncertainty_check_accepts_only_listed_levels():
+    # The check reads the answer's uncertainty level; a solid statistic marked "high" must fail.
+    turn = {"uncertainty": ["low", "medium"]}
+    ok = fake_result("text")
+    ok["answer"]["uncertainty"] = {"level": "low", "reasons": []}
+    bad = fake_result("text")
+    bad["answer"]["uncertainty"] = {"level": "high", "reasons": []}
+    assert dict((c, p) for c, p, _ in check_turn(turn, ok))["uncertainty"] is True
+    assert dict((c, p) for c, p, _ in check_turn(turn, bad))["uncertainty"] is False
