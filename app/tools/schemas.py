@@ -53,6 +53,14 @@ class RankHubsInput(_Strict):
             raise ValueError("top_n must be between 1 and 47")
         return v
 
+    @model_validator(mode="after")
+    def _costs_only_for_all(self):
+        # With a single hazard, multiplying every hub by the same cost can't change the order,
+        # so accepting costs would let the answer claim a weighting that had no effect.
+        if self.day_costs is not None and self.hazard != "all":
+            raise ValueError("day_costs only applies when hazard = 'all'; set day_costs to null")
+        return self
+
 
 class CompareHubsInput(_Strict):
     hub_ids: list[HubId] = Field(description="2 to 6 hub ids to compare.")

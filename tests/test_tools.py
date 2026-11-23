@@ -62,6 +62,32 @@ def test_rank_hubs_day_costs_change_the_total():
     assert w["miami"] > b["miami"] and w["denver"] == b["denver"]
 
 
+def test_rank_ties_share_a_rank_and_zero_is_flagged():
+    out = run("rank_hubs", measure="severe_disruption_days", hazard="hurricane", region=None, top_n=None,
+              day_costs=None)
+    zeros = [r for r in out["ranking"] if r["value_days_per_year"] == 0]
+    assert len(zeros) > 1 and len({r["rank"] for r in zeros}) == 1
+    assert all(r["no_exposure_in_data"] for r in zeros)
+    assert "overall_tier" in out["ranking"][0] and "tier" not in out["ranking"][0]
+
+
+def test_default_ranking_uses_tier_label():
+    out = run("rank_hubs", measure="severe_disruption_days", hazard="all", region=None, top_n=3, day_costs=None)
+    assert "tier" in out["ranking"][0]
+
+
+def test_ranges_contain_values():
+    out = run("rank_hubs", measure="severe_disruption_days", hazard="all", region=None, top_n=None, day_costs=None)
+    for r in out["ranking"]:
+        lo, hi = r["range_90pct"]
+        assert lo <= r["value_days_per_year"] <= hi
+
+
+def test_compare_reports_no_exposure_and_ties():
+    out = run("compare_hubs", hub_ids=["denver", "chicago"], hazards=["hurricane"])
+    assert out["by_hazard"]["hurricane"]["most_exposed_by_severe_days"].startswith("none")
+
+
 def test_compare_hubs():
     out = run("compare_hubs", hub_ids=["miami", "houston"], hazards=["hurricane", "flood"])
     assert [h["hub_id"] for h in out["hubs"]] == ["miami", "houston"]
@@ -104,6 +130,8 @@ def test_find_nearest_hubs_tool():
     ("get_weather_stat", {"hub_id": "denver", "metric": "snow_day", "start_date": "2025-12-31",
                           "end_date": "2025-01-01"}),
     ("no_such_tool", {}),
+    ("rank_hubs", {"measure": "severe_disruption_days", "hazard": "hurricane", "region": None, "top_n": None,
+                   "day_costs": {"winter": None, "flood": None, "convective": None, "hurricane": 3, "heat": None}}),
 ])
 def test_invalid_arguments_return_errors(name, args):
     out = execute(name, args)
