@@ -15,6 +15,7 @@ import time
 import pandas as pd
 
 from app.config import get_settings
+from app.db import create_schema
 from app.geo import haversine_km
 from app.ingest.common import get_with_retry, http_client, log_ingest
 from app.scoring.params import get_params
@@ -49,8 +50,11 @@ def load_candidates(refresh: bool = False) -> pd.DataFrame:
         colspecs=[(0, 11), (31, 35), (36, 40), (41, 45)], names=["station_id", "element", "first", "last"],
     )
     inv = inv[inv["station_id"].str.startswith(sp["station_prefix"])]
+    # Pre-filter on the fallback (minimum) elements only: e.g. peak-gust records at many
+    # airports start a few years after 1996, so the >= min_completeness check on the
+    # downloaded data, not the inventory's first year, decides on the other elements.
     ok = None
-    for el in sp["required_elements"]:
+    for el in sp["fallback_required_elements"]:
         covers = inv[(inv["element"] == el) & (inv["first"] <= sp["first_year"]) & (inv["last"] >= sp["last_year"])]
         ids = set(covers["station_id"])
         ok = ids if ok is None else ok & ids
@@ -108,32 +112,45 @@ def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
     p = get_params()["stations"]
     cands = load_candidates(refresh)
     hubs = conn.execute("SELECT id, lat, lon FROM hubs ORDER BY id").fetchall()
-    conn.execute("DELETE FROM hub_stations")
-    chosen, problems = {}, []
+    # Recreate so schema changes apply; station_daily is rebuilt for the chosen stations.
+    conn.execute("DROP TABLE IF EXISTS hub_stations")
+    conn.execute("DELETE FROM station_daily")
+    create_schema(conn)
+    chosen, problems, fallbacks = {}, [], []
     for hub_id, lat, lon in hubs:
         d = cands.assign(distance_km=haversine_km(lat, lon, cands["lat"], cands["lon"]))
         d = d[d["distance_km"] <= p["max_distance_km"]].sort_values("distance_km")
-        picked = None
-        for tried, st in enumerate(d.itertuples(), 1):
-            df = fetch_station(st.station_id, refresh)
-            comp = completeness(df)
-            if all(comp[el] >= p["min_completeness"] for el in p["required_elements"]):
-                picked = (st, df, comp, tried)
+        picked, tried = None, 0
+        # Pass 1: full-instrument stations (required_elements, incl. peak gust).
+        # Pass 2 (fallback): stations meeting fallback_required_elements; hub flagged.
+        for gust_measured, required in ((1, p["required_elements"]), (0, p["fallback_required_elements"])):
+            for st in d.itertuples():
+                tried += 1
+                df = fetch_station(st.station_id, refresh)
+                comp = completeness(df)
+                if all(comp[el] >= p["min_completeness"] for el in required):
+                    picked = (st, df, comp, gust_measured)
+                    break
+            if picked:
                 break
         if picked is None:
             problems.append(hub_id)
             continue
-        st, df, comp, tried = picked
-        conn.execute("DELETE FROM station_daily WHERE station_id = ?", (st.station_id,))
-        conn.executemany(
-            "INSERT OR REPLACE INTO station_daily VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", to_rows(st.station_id, df))
-        conn.execute("INSERT INTO hub_stations VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        st, df, comp, gust_measured = picked
+        if not gust_measured:
+            fallbacks.append(hub_id)
+        if st.station_id not in chosen.values():
+            conn.executemany(
+                "INSERT OR REPLACE INTO station_daily VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                to_rows(st.station_id, df))
+        conn.execute("INSERT INTO hub_stations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (hub_id, st.station_id, st.name, st.lat, st.lon, round(float(st.distance_km), 1),
-                      json.dumps(comp), tried))
+                      json.dumps(comp), tried, gust_measured))
         conn.commit()
         chosen[hub_id] = st.station_id
-        print(f"  {hub_id}: {st.station_id} {st.name} ({st.distance_km:.1f} km) {comp}")
+        print(f"  {hub_id}: {st.station_id} {st.name} ({st.distance_km:.1f} km) gust={'yes' if gust_measured else 'NO'} {comp}")
     log_ingest(conn, "ghcn_daily", "ok" if not problems else "partial", rows=len(chosen),
-               params={k: p[k] for k in ("max_distance_km", "first_year", "last_year", "min_completeness")},
-               note=f"no qualifying station: {problems}" if problems else None)
-    return {"hubs_with_station": len(chosen), "no_station": problems}
+               params={k: p[k] for k in ("max_distance_km", "first_year", "last_year", "min_completeness",
+                                         "required_elements")},
+               note=f"no station: {problems}; fallback (no gusts): {fallbacks}")
+    return {"hubs_with_station": len(chosen), "no_station": problems, "fallback_no_gust": fallbacks}

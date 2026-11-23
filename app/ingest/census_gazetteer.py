@@ -15,6 +15,7 @@ import pandas as pd
 from app.config import get_settings
 from app.db import create_schema
 from app.ingest.common import get_with_retry, http_client, log_ingest
+from app.scoring.params import get_params
 
 YEAR = 2026
 BASE = f"https://www2.census.gov/geo/docs/maps-data/data/gazetteer/{YEAR}_Gazetteer"
@@ -47,11 +48,29 @@ def _download_table(url: str, cache_name: str, refresh: bool) -> pd.DataFrame:
 
 
 def clean_place_name(name: str) -> str:
-    """'Tampa city' -> 'Tampa'; 'Nashville-Davidson metropolitan government (balance)' -> 'Nashville-Davidson'."""
-    prev = None
-    while prev != name:
-        prev, name = name, SUFFIX_RE.sub("", name).strip()
-    return name
+    """'Tampa city' -> 'Tampa'; 'Kansas City city' -> 'Kansas City';
+    'Nashville-Davidson metropolitan government (balance)' -> 'Nashville-Davidson'.
+
+    Strip the Census suffix exactly once: repeating would turn 'Kansas City city' into 'Kansas'.
+    """
+    return SUFFIX_RE.sub("", name).strip()
+
+
+def load_population(refresh: bool = False) -> dict[str, int]:
+    """Census city/town population estimates -> {7-digit place GEOID: latest estimate}.
+
+    Covers incorporated places (summary level 162); census-designated places (CDPs) have none.
+    """
+    url = get_params()["stand_in"]["population_file"]
+    cache = get_settings().raw_dir / url.rsplit("/", 1)[-1]
+    if refresh or not cache.exists():
+        with http_client() as c:
+            cache.write_bytes(get_with_retry(c, url).content)
+    df = pd.read_csv(cache, dtype=str, encoding="latin-1")
+    df = df[df["SUMLEV"] == "162"]
+    latest = sorted(c for c in df.columns if c.startswith("POPESTIMATE") and c[11:].isdigit())[-1]
+    geoid = df["STATE"].str.zfill(2) + df["PLACE"].str.zfill(5)
+    return dict(zip(geoid, pd.to_numeric(df[latest], errors="coerce")))
 
 
 def nearest_county(places: pd.DataFrame, counties: pd.DataFrame) -> pd.Series:
@@ -91,18 +110,19 @@ def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
     })
     places["name"] = places["full_name"].map(clean_place_name)
     places["county_fips"] = nearest_county(places, counties)
+    places["population"] = places["geoid"].map(load_population(refresh))
 
+    cols = ["geoid", "name", "full_name", "state", "lat", "lon", "aland_sqmi", "population", "county_fips"]
     conn.execute("DELETE FROM counties")
     # Recreate places so schema changes (new columns) apply to existing databases.
     conn.execute("DROP TABLE IF EXISTS places")
     create_schema(conn)
     conn.executemany("INSERT INTO counties VALUES (?, ?, ?, ?, ?)", counties.itertuples(index=False))
     conn.executemany(
-        "INSERT INTO places (geoid, name, full_name, state, lat, lon, aland_sqmi, county_fips) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [tuple(None if pd.isna(v) else v for v in row) for row in
-         places[["geoid", "name", "full_name", "state", "lat", "lon", "aland_sqmi", "county_fips"]]
-         .itertuples(index=False)],
+        "INSERT INTO places (geoid, name, full_name, state, lat, lon, aland_sqmi, population, county_fips) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [tuple(None if pd.isna(v) else (int(v) if k == "population" else v) for k, v in zip(cols, row))
+         for row in places[cols].itertuples(index=False)],
     )
     conn.commit()
     log_ingest(conn, "census_gazetteer", "ok", rows=len(places) + len(counties),

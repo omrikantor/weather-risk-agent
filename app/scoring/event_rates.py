@@ -38,20 +38,24 @@ def poisson_interval(k: int, years: int, level: float) -> tuple[float, float]:
 def densify_tracks(conn: sqlite3.Connection, step_km: float) -> pd.DataFrame:
     """Linearly interpolate each storm's track so consecutive points are <= step_km apart."""
     t = pd.read_sql("SELECT storm_id, name, dt, status, lat, lon, wind_kt FROM storm_tracks ORDER BY storm_id, dt", conn)
+    t["ts"] = pd.to_datetime(t["dt"], utc=True).astype("int64") // 10**9   # epoch seconds
     out = []
     for sid, g in t.groupby("storm_id", sort=False):
-        lat, lon, wind, status = g["lat"].to_numpy(), g["lon"].to_numpy(), g["wind_kt"].to_numpy(), g["status"].to_numpy()
+        lat, lon, wind = g["lat"].to_numpy(), g["lon"].to_numpy(), g["wind_kt"].to_numpy()
+        status, ts = g["status"].to_numpy(), g["ts"].to_numpy()
         for i in range(len(g)):
-            out.append((sid, lat[i], lon[i], wind[i], status[i]))
+            out.append((sid, lat[i], lon[i], wind[i], status[i], ts[i]))
             if i + 1 < len(g):
                 d = float(haversine_km(lat[i], lon[i], lat[i + 1], lon[i + 1]))
                 n = int(d // step_km)
                 for j in range(1, n + 1):
                     f = j / (n + 1)
-                    w = None if (wind[i] is None or wind[i + 1] is None or np.isnan(wind[i]) or np.isnan(wind[i + 1])) \
-                        else wind[i] + f * (wind[i + 1] - wind[i])
-                    out.append((sid, lat[i] + f * (lat[i + 1] - lat[i]), lon[i] + f * (lon[i + 1] - lon[i]), w, status[i]))
-    pts = pd.DataFrame(out, columns=["storm_id", "lat", "lon", "wind_kt", "status"])
+                    w = np.nan if (np.isnan(wind[i]) or np.isnan(wind[i + 1])) else wind[i] + f * (wind[i + 1] - wind[i])
+                    out.append((sid, lat[i] + f * (lat[i + 1] - lat[i]), lon[i] + f * (lon[i + 1] - lon[i]), w,
+                                status[i], ts[i] + f * (ts[i + 1] - ts[i])))
+    pts = pd.DataFrame(out, columns=["storm_id", "lat", "lon", "wind_kt", "status", "ts"])
+    # Calendar date (UTC) of each track point; used to count storm-affected days.
+    pts["date"] = pd.to_datetime(pts["ts"], unit="s", utc=True).dt.strftime("%Y-%m-%d")
     names = t.drop_duplicates("storm_id").set_index("storm_id")["name"]
     pts["name"] = pts["storm_id"].map(names)
     return pts
@@ -83,6 +87,10 @@ def hurricane_rates(conn, hubs, p) -> list[dict]:
                 ]
                 rows.append(_rate_row(hub_id, hazard, r, hp["first_year"], hp["last_year"], len(storms), years, p,
                                       {"notable_storms": notable_list}))
+            # Storm-affected days: distinct dates with a tropical-storm-strength storm within the radius.
+            dates = sorted(pts.loc[near & eligible, "date"].unique())
+            rows.append(_rate_row(hub_id, "hurricane_days", r, hp["first_year"], hp["last_year"], len(dates), years, p,
+                                  {"unit": "storm days (UTC dates)", "dates": dates}))
     return rows
 
 
@@ -96,9 +104,12 @@ def convective_rates(conn, hubs, p) -> list[dict]:
         for hub_id, lat, lon in hubs:
             d = point_to_segment_km(lat, lon, h["slat"], h["slon"], h["elat"], h["elon"])
             for r in p["radii_km"]["convective"]:
-                days = h.loc[d <= r, "date"].nunique()
-                rows.append(_rate_row(hub_id, hazard, r, cp["first_year"], cp["last_year"], int(days), years, p,
-                                      {"unit": "report days"}))
+                dates = sorted(h.loc[d <= r, "date"].unique())
+                details = {"unit": "report days"}
+                if hazard == "tornado":
+                    details["dates"] = dates   # used to combine with measured-gust days
+                rows.append(_rate_row(hub_id, hazard, r, cp["first_year"], cp["last_year"], len(dates), years, p,
+                                      details))
     return rows
 
 

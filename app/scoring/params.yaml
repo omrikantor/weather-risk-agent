@@ -2,7 +2,7 @@
 # control how we compute from the data. Each has a rationale; see PLAN.md section 2.5.
 # Same data + same params -> same output.
 
-params_version: "1.0"
+params_version: "1.1"
 
 # ---------------------------------------------------------------------------------------
 # Tier A: long-term event records counted around each hub
@@ -55,7 +55,76 @@ stations:
   max_distance_km: 40
   first_year: 1996                # 30-year window, close to the climate-normal convention
   last_year: 2025
-  required_elements: [PRCP, TMAX] # must be >= min_completeness over the window
+  # Must be >= min_completeness over the window. WSF5 (peak gust) is required so the rule
+  # picks full-instrument (ASOS) stations, which also report weather events; event flags
+  # themselves can't be completeness-checked because they only appear on event days.
+  required_elements: [PRCP, TMAX, WSF5]
+  # If no station within range has gusts, take the nearest with these and flag the hub
+  # as having no measured gusts (Open-Meteo modeled gusts are used instead).
+  fallback_required_elements: [PRCP, TMAX]
   min_completeness: 0.90
   elements: [PRCP, SNOW, TMAX, TMIN, WSF5, WT03, WT04, WT05, WT06, WT17]
   # WT03 thunder, WT04 ice pellets/sleet, WT05 hail, WT06 glaze/rime, WT17 freezing rain
+
+# ---------------------------------------------------------------------------------------
+# Scoring: expected disruption days per year (no subjective hazard weights)
+# ---------------------------------------------------------------------------------------
+scoring:
+  scoring_version: "2.0"
+  window: [1996, 2025]            # station-based hazards; hurricanes use event_rates.hurricane years
+  # A variable whose station data covers < min_coverage of the window (after filling 2016+
+  # gaps from Open-Meteo) is computed from Open-Meteo 2016-2025 instead, and flagged.
+  min_coverage: 0.80
+
+  # A hub-day counts as disrupted by a hazard when its rule is met.
+  disruption_rules:
+    winter: "snow >= 5 cm, or observed glaze / freezing rain / ice pellets"
+    flood: "precipitation >= 50 mm"
+    convective: "measured gust >= 93 km/h (58 mph, the NWS severe-wind level), or an EF1+ tornado within 50 km"
+    heat: "daily high >= 38 C (100 F)"
+    hurricane: "a tropical-storm-strength (34 kt+) storm within 150 km at any time that day"
+  thresholds:
+    disruption_snow_cm: 5
+    disruption_precip_mm: 50
+    disruption_gust_kmh: 93
+    disruption_heat_c: 38
+  # Optional cost per disruption day by hazard (all 1 = every disruption day counts the same).
+  # A client can supply real costs; the composite then becomes expected cost-weighted days.
+  default_day_costs: {winter: 1, flood: 1, convective: 1, hurricane: 1, heat: 1}
+
+  # Descriptive metrics (shown in answers, not used for ranking).
+  descriptive_thresholds:
+    snow_day_cm: 1.0
+    trace_snow_cm: 0.1
+    heavy_snow_cm: 10
+    extreme_cold_c: -15
+    heavy_rain_mm: 50
+    extreme_heat_c: 38
+    damaging_gust_kmh: 93
+
+  tiers: thirds                   # top / middle / bottom third of hubs by composite days
+
+  confidence_rules:               # each true condition lowers confidence one level (high -> medium -> low)
+    station_far_km: 25
+    gust_not_measured: true
+    variable_from_open_meteo: true  # any scored variable fell back to Open-Meteo
+
+# ---------------------------------------------------------------------------------------
+# Stand-in hubs for places that aren't hubs (find_nearest_hubs)
+# ---------------------------------------------------------------------------------------
+stand_in:
+  candidates: 3
+  w_similarity: 0.8
+  w_proximity: 0.2
+  proximity_zero_km: 500          # proximity score falls linearly from 100 at 0 km to 0 here
+  far_caveat_km: 250
+  # Hazard profile = FEMA NRI annualized frequency for these hazards, each scaled by the
+  # 95th percentile across all US counties (capped at 1) so the 10 hazards are comparable.
+  profile_hazards: [winter_weather, ice_storm, cold_wave, hurricane, coastal_flood,
+                    inland_flood, tornado, hail, strong_wind, heat_wave]
+  profile_scale_percentile: 95
+  # Ambiguous place names: a "major place" has population >= this (the Census Bureau's
+  # population threshold for a metropolitan area's core). Exactly one major match -> use it.
+  major_place_population: 50000
+  population_file: https://www2.census.gov/programs-surveys/popest/datasets/2020-2025/cities/totals/sub-est2025.csv
+  fuzzy_cutoff: 0.85

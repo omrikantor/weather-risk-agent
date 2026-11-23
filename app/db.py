@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS places (
     state         TEXT NOT NULL,
     lat           REAL NOT NULL,
     lon           REAL NOT NULL,
-    aland_sqmi    REAL,                    -- land area; used to prefer the major place among same-name matches
+    aland_sqmi    REAL,                    -- land area
+    population    INTEGER,                 -- Census estimate (incorporated places; NULL for CDPs)
     county_fips   TEXT                     -- nearest county centroid in the same state (approximation)
 );
 CREATE INDEX IF NOT EXISTS idx_places_name ON places(name);
@@ -120,7 +121,8 @@ CREATE TABLE IF NOT EXISTS hub_stations (
     lat             REAL, lon REAL,
     distance_km     REAL NOT NULL,
     completeness_json TEXT NOT NULL,       -- per element share of days present, 1996-2025
-    candidates_tried INTEGER NOT NULL
+    candidates_tried INTEGER NOT NULL,
+    gust_measured   INTEGER NOT NULL       -- 0 = fallback station without peak-gust data
 );
 
 CREATE TABLE IF NOT EXISTS station_daily (
