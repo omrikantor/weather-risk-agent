@@ -27,8 +27,11 @@ class Settings(BaseSettings):
     price_output_per_m: float = 10.00
 
     # API protection
-    app_access_code: str = "change-me"
-    admin_token: str = "change-me-too"
+    app_access_code: str = ""            # empty = open (local development only)
+    admin_token: str = ""                # empty = admin endpoints disabled
+    chat_rate_limit_per_min: int = 10    # per client IP
+    daily_budget_usd: float = 3.0        # OpenAI spend cap per UTC day; adjustable at runtime via admin endpoint
+    cors_origins: str = ""               # comma-separated; empty = same origin only
 
     # Alerts
     alert_webhook_url: str = ""

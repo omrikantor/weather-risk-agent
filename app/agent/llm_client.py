@@ -9,11 +9,15 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
+from openai import APIConnectionError, APIError, APITimeoutError, InternalServerError, OpenAI, RateLimitError
 
 from app.config import get_settings
 
 log = logging.getLogger("llm")
+
+
+class LLMUnavailableError(RuntimeError):
+    """The LLM provider failed after retries (outage, auth, quota, ...). Provider-neutral."""
 
 
 @dataclass
@@ -81,10 +85,12 @@ class LLMClient:
                 break
             except self.RETRYABLE as e:
                 if i == attempts - 1:
-                    raise
+                    raise LLMUnavailableError(f"{type(e).__name__} after {attempts} attempts") from e
                 wait = 2 ** i * 2
                 log.warning("LLM call failed (%s); retrying in %ss", type(e).__name__, wait)
                 time.sleep(wait)
+            except APIError as e:          # auth, quota, bad request: not retryable
+                raise LLMUnavailableError(f"{type(e).__name__}: {str(e)[:200]}") from e
         return self._convert(r)
 
     def _convert(self, r) -> LLMResponse:
