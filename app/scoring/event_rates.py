@@ -38,7 +38,10 @@ def poisson_interval(k: int, years: int, level: float) -> tuple[float, float]:
 def densify_tracks(conn: sqlite3.Connection, step_km: float) -> pd.DataFrame:
     """Linearly interpolate each storm's track so consecutive points are <= step_km apart."""
     t = pd.read_sql("SELECT storm_id, name, dt, status, lat, lon, wind_kt FROM storm_tracks ORDER BY storm_id, dt", conn)
-    t["ts"] = pd.to_datetime(t["dt"], utc=True).astype("int64") // 10**9   # epoch seconds
+    # Epoch seconds, independent of pandas' datetime resolution (pandas 3 may store s/us, not ns,
+    # so astype("int64") // 10**9 would be wrong).
+    epoch = pd.Timestamp("1970-01-01", tz="UTC")
+    t["ts"] = (pd.to_datetime(t["dt"], utc=True) - epoch) // pd.Timedelta(seconds=1)
     out = []
     for sid, g in t.groupby("storm_id", sort=False):
         lat, lon, wind = g["lat"].to_numpy(), g["lon"].to_numpy(), g["wind_kt"].to_numpy()

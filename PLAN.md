@@ -183,6 +183,12 @@ Determinism = same data + same config → same output.
 - **Combination:** per day and variable, station value if present, else Open-Meteo (2016–2025 only); every value carries its source. Share of gap-filled values reported per hub.
 - Caveats: weather-type flags are recorded inconsistently (a missing flag doesn't prove nothing happened); the airport can be 10–25 km from the city center.
 
+### 2.7b Disruption data (final; data frozen after this)
+- **NWS warnings** (Iowa Environmental Mesonet VTEC archive, by hub county + forecast zone from the NWS points API), warnings only, 2006–2025. Locally calibrated: a warning means conditions expected to be dangerous *for that place* (fixes fixed-threshold bias, e.g. Phoenix 106 days ≥ 38 °C vs ~3 Excessive Heat Warnings/yr). Phenomena → hazards: winter (WS, BZ, IS, LE), flood (FF, FA, CF; river-gauge FL excluded), convective/wind (SV, TO, HW, EW, DS), hurricane (HU, TR, SS), heat (EH, XH).
+- **FEMA disaster declarations** (OpenFEMA), major disasters (DR), weather incident types, 1996–2025.
+- **KPIs (no chosen weights):** routine disruption days/yr = warning days per hazard; severity share per hazard = pooled share of warning days inside a matching FEMA major-disaster incident period in the hub county; **severe disruption days/yr = Σ warning days × severity share = primary ranking** (resilience investment targets severe events). Threshold metrics, station data, HURDAT2 and SPC rates remain as explanatory evidence.
+- Caveats: warnings are forecasts (false alarms/misses); product renames (Excessive → Extreme Heat, 2024) mapped; declarations partly policy-driven (heat is almost never declared); incident periods are administrative.
+
 ### 2.8 `build_db.py` CLI
 `python -m app.ingest.build_db [--refresh]` creates the schema, loads hubs, ingests Open-Meteo, NRI, Census, HURDAT2, SPC and GHCN, computes hub event rates, then (from Phase 3) calls the scoring engine and writes `risk_scores`.
 

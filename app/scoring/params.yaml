@@ -109,6 +109,42 @@ scoring:
     gust_not_measured: true
     variable_from_open_meteo: true  # any scored variable fell back to Open-Meteo
 
+  # KPIs (scoring_version 3): routine disruption days = NWS warning days per hazard;
+  # severe disruption days = warning days x severity share (primary ranking).
+  kpi_version: "3.0"
+
+# ---------------------------------------------------------------------------------------
+# Disruption data: NWS warnings + FEMA disaster declarations
+# ---------------------------------------------------------------------------------------
+warnings:
+  points_url: https://api.weather.gov/points/{lat},{lon}       # gives each hub's county + forecast zone
+  archive_url: https://mesonet.agron.iastate.edu/json/vtec_events_byugc.php
+  # Storm-based (polygon) warnings: count only polygons that contain the hub location;
+  # counting every warning touching the county would bias large counties (e.g. Maricopa).
+  polygon_url: https://mesonet.agron.iastate.edu/json/sbw_by_point.py
+  polygon_phenomena: [SV, TO, FF, FA, EW, DS]
+  first_year: 2006
+  last_year: 2025
+  significance: W               # warnings only (not watches or advisories)
+  phenomena:                    # NWS VTEC phenomena codes -> our hazards
+    winter: [WS, BZ, IS, LE]    # winter storm, blizzard, ice storm, lake-effect snow
+    flood: [FF, FA, CF]         # flash flood, areal flood, coastal flood (river-gauge FL excluded)
+    convective: [SV, TO, HW, EW, DS]   # severe thunderstorm, tornado, high wind, extreme wind, dust storm
+    hurricane: [HU, TR, SS]     # hurricane, tropical storm, storm surge
+    heat: [EH, XH]              # excessive heat, extreme heat (renamed 2024)
+
+declarations:
+  url: https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries
+  first_year: 1996
+  last_year: 2025
+  declaration_type: DR          # major disasters only (excludes e.g. evacuee-hosting emergencies)
+  incident_types:               # FEMA incident types that match each hazard
+    winter: [Snowstorm, Severe Ice Storm, Winter Storm, Freezing]
+    flood: [Flood, Severe Storm, Hurricane, Tropical Storm, Coastal Storm, Dam/Levee Break]
+    convective: [Severe Storm, Tornado, Straight-Line Winds, Hurricane, Tropical Storm]
+    hurricane: [Hurricane, Tropical Storm, Coastal Storm, Typhoon, Tropical Depression]
+    heat: []                    # no heat incident type exists in the declarations data
+
 # ---------------------------------------------------------------------------------------
 # Stand-in hubs for places that aren't hubs (find_nearest_hubs)
 # ---------------------------------------------------------------------------------------

@@ -141,6 +141,39 @@ CREATE TABLE IF NOT EXISTS station_daily (
     PRIMARY KEY (station_id, date)
 );
 
+-- NWS geography for each hub (from the NWS points API).
+CREATE TABLE IF NOT EXISTS hub_ugc (
+    hub_id      TEXT NOT NULL,
+    ugc         TEXT NOT NULL,             -- e.g. TXC113 (county) or TXZ119 (forecast zone)
+    kind        TEXT NOT NULL,             -- county | zone
+    timezone    TEXT NOT NULL,             -- IANA name, used to convert warning times to local dates
+    PRIMARY KEY (hub_id, ugc)
+);
+
+-- NWS warnings (VTEC) for hub counties/zones, from the Iowa Environmental Mesonet archive.
+CREATE TABLE IF NOT EXISTS nws_warnings (
+    ugc         TEXT NOT NULL,
+    wfo         TEXT,
+    phenomena   TEXT NOT NULL,             -- e.g. WS, SV, EH
+    significance TEXT NOT NULL,            -- W = warning
+    name        TEXT,
+    eventid     INTEGER,
+    issue       TEXT NOT NULL,             -- UTC ISO
+    expire      TEXT NOT NULL,
+    PRIMARY KEY (ugc, wfo, phenomena, significance, eventid, issue)
+);
+
+-- FEMA major-disaster declarations (weather incident types), county level.
+CREATE TABLE IF NOT EXISTS fema_declarations (
+    disaster_number INTEGER NOT NULL,
+    county_fips   TEXT NOT NULL,
+    incident_type TEXT NOT NULL,
+    title         TEXT,
+    begin_date    TEXT NOT NULL,
+    end_date      TEXT NOT NULL,
+    PRIMARY KEY (disaster_number, county_fips)
+);
+
 CREATE TABLE IF NOT EXISTS hub_metrics (
     hub_id        TEXT NOT NULL,
     metric        TEXT NOT NULL,

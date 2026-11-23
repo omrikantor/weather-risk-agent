@@ -6,17 +6,20 @@ Usage:
     python -m app.ingest.build_db --skip-weather     # all steps except Open-Meteo
     python -m app.ingest.build_db --only hurdat2 spc rates   # selected steps
 
-Steps (in order): hubs, nri, census, weather, hurdat2, spc, ghcn, rates
+Steps (in order): hubs, nri, census, weather, hurdat2, spc, ghcn, warnings, rates, score
+
+Before committing/deploying run `python -m app.ingest.compact_db` (keeps the latest scores, empties
+raw event tables). After compaction, recomputing rates needs `--only hurdat2 spc rates score`.
 """
 
 import argparse
 
 from app.config import get_settings
 from app.db import create_schema, get_connection
-from app.ingest import census_gazetteer, fema_nri, ghcn, hubs, hurdat2, open_meteo, spc_reports
-from app.scoring import event_rates
+from app.ingest import census_gazetteer, fema_nri, ghcn, hubs, hurdat2, nws_warnings, open_meteo, spc_reports
+from app.scoring import engine, event_rates
 
-STEPS = ["hubs", "nri", "census", "weather", "hurdat2", "spc", "ghcn", "rates"]
+STEPS = ["hubs", "nri", "census", "weather", "hurdat2", "spc", "ghcn", "warnings", "rates", "score"]
 
 
 def summarize(conn) -> None:
@@ -83,9 +86,16 @@ def main() -> None:
     if "ghcn" in steps:
         print("NOAA GHCN-Daily stations")
         print(f"  {ghcn.ingest(conn, refresh=args.refresh)}")
+    if "warnings" in steps:
+        print("NWS warnings + FEMA declarations")
+        print(f"  {nws_warnings.ingest(conn, refresh=args.refresh)}")
     if "rates" in steps:
         print("Hub event rates")
         print(f"  {event_rates.compute(conn)}")
+    if "score" in steps:
+        print("Scoring")
+        df = engine.score_all(conn)
+        print(f"  scored {len(df)} hubs; top 5: {list(df.index[:5])}")
 
     summarize(conn)
     conn.close()

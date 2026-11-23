@@ -118,6 +118,50 @@ def test_max_3day_precip_mean():
     assert m.max_3day_precip_mean(p) == pytest.approx(60.0)
 
 
+# ------------------------------------------------------------------ warnings and severity
+
+
+PHEN = {"winter": ["WS"], "heat": ["EH"], "flood": [], "convective": [], "hurricane": []}
+
+
+def test_warning_spanning_midnight_covers_both_local_dates():
+    w = pd.DataFrame({"phenomena": ["WS"], "issue": ["2021-02-14T03:00:00Z"], "expire": ["2021-02-15T06:00:00Z"]})
+    # 03:00Z = 21:00 previous day in Chicago (UTC-6)
+    d = m.warning_days(w, "America/Chicago", PHEN, (2006, 2025))
+    assert d["winter"] == {"2021-02-13", "2021-02-14", "2021-02-15"}
+
+
+def test_overlapping_warnings_count_a_day_once_and_unmapped_codes_ignored():
+    w = pd.DataFrame({"phenomena": ["EH", "EH", "SV"],
+                      "issue": ["2020-07-01T15:00:00Z", "2020-07-01T18:00:00Z", "2020-07-02T18:00:00Z"],
+                      "expire": ["2020-07-01T23:00:00Z", "2020-07-01T23:30:00Z", "2020-07-02T19:00:00Z"]})
+    d = m.warning_days(w, "UTC", PHEN, (2006, 2025))
+    assert d["heat"] == {"2020-07-01"} and d["winter"] == set()
+
+
+def test_mixed_iso_formats_are_parsed():
+    w = pd.DataFrame({"phenomena": ["WS", "WS"], "issue": ["2016-02-25T03:58Z", "2016-03-01T12:00:00Z"],
+                      "expire": ["2016-02-25T09:00Z", "2016-03-01T13:00:00Z"]})
+    assert m.warning_days(w, "UTC", PHEN, (2006, 2025))["winter"] == {"2016-02-25", "2016-03-01"}
+
+
+def test_warning_days_outside_window_excluded():
+    w = pd.DataFrame({"phenomena": ["WS"], "issue": ["2005-12-31T12:00:00Z"], "expire": ["2006-01-01T12:00:00Z"]})
+    assert m.warning_days(w, "UTC", PHEN, (2006, 2025))["winter"] == {"2006-01-01"}
+
+
+def test_dates_in_incidents():
+    inc = pd.DataFrame({"begin_date": ["2020-01-05"], "end_date": ["2020-01-07"]})
+    assert m.dates_in_incidents({"2020-01-04", "2020-01-05", "2020-01-07", "2020-01-08"}, inc) == 2
+
+
+def test_share_with_interval():
+    s = m.share_with_interval(10, 100, 0.9)
+    assert s["share"] == 0.1 and s["lo"] < 0.1 < s["hi"]
+    assert m.share_with_interval(0, 50, 0.9)["lo"] == 0.0
+    assert m.share_with_interval(0, 0, 0.9)["share"] == 0.0
+
+
 # ------------------------------------------------------------------ composite, tiers, confidence
 
 

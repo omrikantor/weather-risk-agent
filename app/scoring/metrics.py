@@ -131,6 +131,51 @@ def max_3day_precip_mean(prcp: pd.Series) -> float | None:
     return float(vals.mean()) if len(vals) else None
 
 
+def warning_days(warnings: pd.DataFrame, tz: str, phenomena: dict[str, list[str]],
+                 years: tuple[int, int]) -> dict[str, set[str]]:
+    """Local calendar dates covered by at least one warning, per hazard.
+
+    warnings: columns phenomena, issue, expire (UTC ISO strings). A warning covers every local
+    date from its issue time to its expire time, inclusive.
+    """
+    out = {h: set() for h in phenomena}
+    if warnings.empty:
+        return out
+    code_to_hazard = {c: h for h, codes in phenomena.items() for c in codes}
+    w = warnings[warnings["phenomena"].isin(code_to_hazard)].copy()
+    # The two IEM endpoints use slightly different ISO formats ("...T03:58Z" vs "...T03:58:00Z").
+    def to_local_date(s):
+        return pd.to_datetime(s, utc=True, format="ISO8601").dt.tz_convert(tz).dt.normalize().dt.tz_localize(None)
+
+    w["start"], w["stop"] = to_local_date(w["issue"]), to_local_date(w["expire"])
+    w["stop"] = w[["start", "stop"]].max(axis=1)
+    lo, hi = str(years[0]), str(years[1])
+    for code, s, e in zip(w["phenomena"], w["start"], w["stop"]):
+        for d in pd.date_range(s, e).strftime("%Y-%m-%d"):
+            if lo <= d[:4] <= hi:
+                out[code_to_hazard[code]].add(d)
+    return out
+
+
+def dates_in_incidents(dates: set[str], incidents: pd.DataFrame) -> int:
+    """How many dates fall inside any incident period (columns begin_date, end_date, ISO dates)."""
+    if not dates or incidents.empty:
+        return 0
+    b, e = incidents["begin_date"].to_numpy(), incidents["end_date"].to_numpy()
+    return sum(bool(((b <= d) & (e >= d)).any()) for d in dates)
+
+
+def share_with_interval(k: int, n: int, level: float) -> dict:
+    """Binomial share k/n with an exact (Clopper-Pearson) interval."""
+    from scipy.stats import beta
+    if n == 0:
+        return {"share": 0.0, "lo": 0.0, "hi": 0.0, "k": 0, "n": 0}
+    a = 1 - level
+    lo = 0.0 if k == 0 else float(beta.ppf(a / 2, k, n - k + 1))
+    hi = 1.0 if k == n else float(beta.ppf(1 - a / 2, k + 1, n - k))
+    return {"share": k / n, "lo": lo, "hi": hi, "k": int(k), "n": int(n)}
+
+
 # --------------------------------------------------------------------------- database
 
 
