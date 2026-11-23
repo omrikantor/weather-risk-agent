@@ -53,7 +53,7 @@ if (urlDev !== null) storage.set("wra_dev", urlDev === "0" ? "0" : "1");
 const state = {
   code: storage.get("wra_code") || "", sessionId: null, busy: false, dev: storage.get("wra_dev") === "1",
   speak: storage.get("wra_speak") === "1",
-  live: null, liveByHub: {},   // last /api/alerts answer, and its active warnings grouped by hub id
+  live: null, liveByHub: {}, livePendingRetries: 0,   // last /api/alerts answer, warnings by hub id, retries
   month: new Date().getMonth() + 1, measure: "severe_disruption_days", hazard: "all", region: "",
 };
 
@@ -785,8 +785,17 @@ async function loadLive() {
     $("live-count").textContent = hubs;
     $("live-text").textContent = !r.last_check ? "Live warnings: first check pending"
       : hubs ? `${hubs === 1 ? "hub" : "hubs"} under a warning now` : "No live warnings";
+    if ($("live-modal").classList.contains("open")) openLive();   // keep an open window current
+    // Right after a server restart the first check takes about 20 seconds. Ask again shortly instead of
+    // waiting for the 10-minute refresh, a limited number of times.
+    if (!r.last_check && state.livePendingRetries < LIVE_PENDING_RETRIES) {
+      state.livePendingRetries += 1;
+      setTimeout(() => loadLive().then(loadBoard), LIVE_PENDING_RETRY_MS);
+    }
   } catch { /* leave the button as it was */ }
 }
+const LIVE_PENDING_RETRY_MS = 30 * 1000;
+const LIVE_PENDING_RETRIES = 10;   // about 5 minutes of retries; the scheduled check covers anything longer
 
 /* The live warnings window: one row per active warning (click opens the hub), the last check time and a note
    on what this data is. */
@@ -799,11 +808,14 @@ function openLive() {
     hzChip(w.hazard, w.event),
     el("span", { class: "faint num" }, w.ends ? `until ${localTime(w.ends)}` : "")));
   const last = r.last_check ? `Last checked ${r.last_check.checked_at.slice(0, 16).replace("T", " ")} UTC, `
-    + `${r.last_check.hubs_checked} hubs answered.` : "The first check has not run yet.";
-  fill($("live-body"),
-    rows.length ? el("div", { class: "live-list" }, ...rows)
-      : el("p", { class: "muted" }, "No hub is under an active weather warning right now."),
-    el("p", { class: "faint", style: "font-size:12.5px;margin:14px 0 0" }, `${last} ${r.note}`));
+    + `${r.last_check.hubs_checked} hubs answered.` : "";
+  // Three states: warnings found, checked and none found, or not checked yet (then we do not know).
+  const body = rows.length ? el("div", { class: "live-list" }, ...rows)
+    : r.last_check ? el("p", { class: "muted" }, "No hub is under an active weather warning right now.")
+      : el("p", { class: "muted" }, "The live check has not run yet since the server started. It usually "
+        + "completes within a minute; this window updates automatically.");
+  fill($("live-body"), body,
+    el("p", { class: "faint", style: "font-size:12.5px;margin:14px 0 0" }, `${last} ${r.note}`.trim()));
   $("live-modal").classList.add("open");
 }
 $("live-btn").addEventListener("click", openLive);

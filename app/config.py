@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # Live warning alerts (app/alerts/monitor.py): where each check posts new alerts, for example a Slack
     # incoming webhook or a webhook.site test URL. Empty = alerts are recorded but not sent.
     alert_webhook_url: str = ""
+    # Run one live warning check in the background when the server starts, so live data is available within
+    # about 20 seconds of a restart or deploy instead of waiting for the next scheduled check. On in the
+    # Docker image (Dockerfile); off by default so local runs and tests never call the NWS API or write live
+    # alert state into the committed database.
+    alert_check_on_startup: bool = False
 
     # Storage
     db_path: str = "data/risk.db"

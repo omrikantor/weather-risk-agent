@@ -103,7 +103,7 @@ On Render's free plan the service sleeps after 15 minutes without traffic, and t
 
 ### Live warning alerts (optional)
 
-Every 15 minutes `.github/workflows/alerts.yml` asks the deployed app to check all hubs for NWS warnings that started or ended. To turn it on:
+Every 15 minutes `.github/workflows/alerts.yml` asks the deployed app to check all hubs for NWS warnings that started or ended. The deployed server also runs one check right after it starts (`ALERT_CHECK_ON_STARTUP=true` in the Dockerfile), so live warnings appear within about 20 seconds of a deploy. To turn on the schedule:
 
 1. In the GitHub repository, open Settings, then Secrets and variables, then Actions. Add the secret `ADMIN_TOKEN` (the same value as on Render) and the variable `APP_URL` (the Render URL).
 2. Optionally, in Render's Environment settings add `ALERT_WEBHOOK_URL` (a Slack incoming webhook, or a free test URL from webhook.site) to receive each alert as a message. Without it, alerts are still recorded and listed at `/api/alerts`.

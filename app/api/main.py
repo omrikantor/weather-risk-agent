@@ -62,7 +62,22 @@ async def lifespan(app: FastAPI):
     if not settings.app_access_code:
         log.warning("APP_ACCESS_CODE is empty: the API is open (OK for local development only)")
     find_nearest_hubs("Tampa, FL")                            # warm place index and hazard profiles
+    if settings.alert_check_on_startup:
+        # A daemon thread, so start-up is not delayed by the 47 NWS requests and a slow API cannot block it.
+        threading.Thread(target=_startup_alert_check, name="startup-alert-check", daemon=True).start()
     yield
+
+
+def _startup_alert_check() -> None:
+    """One live warning check right after start-up (see Settings.alert_check_on_startup). Failures are logged
+    only: the scheduled check will try again within 15 minutes."""
+    conn = get_connection()
+    try:
+        log.info("start-up alert check: %s", monitor.run_check(conn, webhook_url=get_settings().alert_webhook_url or None))
+    except Exception:  # noqa: BLE001 - never let a background check crash the server
+        log.exception("start-up alert check failed")
+    finally:
+        conn.close()
 
 
 app = FastAPI(title="Weather Risk Intelligence Agent", version="1.0", lifespan=lifespan,

@@ -23,6 +23,8 @@ USER appuser
 
 # Render sets PORT; 8000 is the local default.
 ENV PORT=8000
+# The deployed server runs one live warning check right after it starts (see app/config.py).
+ENV ALERT_CHECK_ON_STARTUP=true
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/health', timeout=4)"

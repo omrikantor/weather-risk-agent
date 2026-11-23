@@ -18,6 +18,7 @@ def make_client(monkeypatch):
     def _make(responses=(), agent=None, **env):
         monkeypatch.setenv("APP_ACCESS_CODE", "test-code")
         monkeypatch.setenv("ADMIN_TOKEN", "admin-token")
+        monkeypatch.setenv("ALERT_CHECK_ON_STARTUP", "false")   # never call the NWS API from tests
         for k, v in env.items():
             monkeypatch.setenv(k, str(v))
         get_settings.cache_clear()
@@ -66,6 +67,20 @@ def test_alert_endpoints_are_protected(make_client):
         assert c.get("/api/alerts").status_code == 401
         body = c.get("/api/alerts", headers=CODE).json()
         assert {"active_warnings", "recent_alerts", "last_check"} <= body.keys()
+
+
+def test_startup_alert_check_runs_in_the_background_when_enabled(make_client, monkeypatch):
+    # With the setting on, start-up launches one check without waiting for it; the real check is replaced by a
+    # stub so no network call is made and the shared database is not written.
+    import threading
+
+    from app.api import main
+
+    ran = threading.Event()
+    monkeypatch.setattr(main.monitor, "run_check", lambda conn, **kw: ran.set() or {"stub": True})
+    with make_client(ALERT_CHECK_ON_STARTUP="true") as c:
+        assert c.get("/health").status_code == 200
+        assert ran.wait(timeout=5)
 
 
 def test_chat_input_validation(make_client):
