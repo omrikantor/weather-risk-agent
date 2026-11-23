@@ -1,0 +1,23 @@
+# Render Blueprint: one Docker web service. Secrets are entered in the Render dashboard (sync: false), never stored here.
+services:
+  - type: web
+    name: weather-risk-agent
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: APP_ACCESS_CODE
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: LLM_MODEL
+        value: gpt-6.2-sol
+      - key: LLM_REASONING_EFFORT
+        value: medium
+      - key: DAILY_BUDGET_USD
+        value: "3.0"
+      - key: CHAT_RATE_LIMIT_PER_MIN
+        value: "10"

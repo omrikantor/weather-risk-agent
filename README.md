@@ -85,3 +85,20 @@ The cases in [evals/cases.yaml](evals/cases.yaml) cover rankings, comparisons, s
 python -m app.ingest.build_db
 python -m app.ingest.compact_db
 ```
+
+## Deploy (Render)
+
+The repository includes a `Dockerfile` and a Render Blueprint (`render.yaml`). The image contains the committed database, so the service starts without downloading data.
+
+1. In Render, choose New, then Blueprint, and connect this GitHub repository. Render reads `render.yaml` and creates one Docker web service.
+2. Enter the three secrets when asked: `OPENAI_API_KEY`, `APP_ACCESS_CODE` (the code users type in the web app) and `ADMIN_TOKEN` (for changing the daily budget at runtime). The model, reasoning effort, daily budget and rate limit are already set in `render.yaml`.
+3. Wait for the build to finish and open the service URL. `/health` should report the database and model.
+
+On Render's free plan the service sleeps after 15 minutes without traffic, and the first request after that takes about a minute. Open the URL shortly before a demo.
+
+To run the same image locally:
+
+```powershell
+docker build -t weather-risk-agent .
+docker run --env-file .env -p 8000:8000 weather-risk-agent
+```
