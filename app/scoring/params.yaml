@@ -1,0 +1,61 @@
+# Method parameters (versioned). Data values are never altered; these settings only
+# control how we compute from the data. Each has a rationale; see PLAN.md section 2.5.
+# Same data + same params -> same output.
+
+params_version: "1.0"
+
+# ---------------------------------------------------------------------------------------
+# Tier A: long-term event records counted around each hub
+# ---------------------------------------------------------------------------------------
+event_rates:
+  # Radius test: rates are computed for every radius; the middle one is the default
+  # if hub rankings are stable across radii (checked by app.scoring.event_rates --test).
+  radii_km:
+    convective: [25, 50, 100]     # tornado / hail / wind
+    hurricane: [100, 150, 200]
+  default_radius_km:
+    convective: 50                # metro-scale area; small enough to stay in one climate zone
+    hurricane: 150                # damaging wind/rain extend far beyond a hurricane's center
+
+  hurricane:
+    source_files:                 # pinned NOAA NHC HURDAT2 releases (reproducible)
+      - https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2025-092326.txt        # Atlantic
+      - https://www.nhc.noaa.gov/data/hurdat/hurdat2-nepac-1949-2025-092926.txt  # NE Pacific
+    first_year: 1950              # records reliable from aircraft reconnaissance onward
+    last_year: 2025
+    min_wind_kt: 34               # tropical-storm strength at closest approach
+    hurricane_wind_kt: 64         # hurricane strength at closest approach (reported separately)
+    statuses: [TS, HU, SS]        # tropical / subtropical storm, hurricane
+    interpolate_step_km: 10       # densify the 6-hourly track before measuring distances
+
+  convective:
+    source_files:                 # pinned NOAA SPC severe-weather database files
+      tornado: https://www.spc.noaa.gov/wcm/data/1950-2025_actual_tornadoes.csv
+      hail: https://www.spc.noaa.gov/wcm/data/1955-2025_hail.csv.zip
+      wind: https://www.spc.noaa.gov/wcm/data/1955-2025_wind.csv.zip
+    first_year: 1996              # limits the long-term growth in reporting
+    last_year: 2025
+    min_magnitude:                # official severe thresholds / damaging tornadoes
+      tornado: 1                  # EF1+ (EF0 reporting grew mostly with more observers)
+      hail: 1.0                   # inches
+      wind: 50                    # knots
+    count_unit: report_days       # distinct days with >= 1 qualifying report within the radius
+
+  probability_horizon_years: 10   # P(at least one event in N years) for investment decisions
+  confidence_level: 0.90          # exact Poisson interval on the annual rate
+
+# ---------------------------------------------------------------------------------------
+# Tier B: measured station data (NOAA GHCN-Daily)
+# ---------------------------------------------------------------------------------------
+stations:
+  stations_url: https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt
+  inventory_url: https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-inventory.txt
+  data_url: https://www.ncei.noaa.gov/access/services/data/v1
+  station_prefix: USW             # US first-order (major airport / NWS) stations
+  max_distance_km: 40
+  first_year: 1996                # 30-year window, close to the climate-normal convention
+  last_year: 2025
+  required_elements: [PRCP, TMAX] # must be >= min_completeness over the window
+  min_completeness: 0.90
+  elements: [PRCP, SNOW, TMAX, TMIN, WSF5, WT03, WT04, WT05, WT06, WT17]
+  # WT03 thunder, WT04 ice pellets/sleet, WT05 hail, WT06 glaze/rime, WT17 freezing rain

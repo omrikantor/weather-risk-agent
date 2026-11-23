@@ -9,4 +9,5 @@ pandas==3.1.1
 APScheduler==3.11.3
 mcp==2.3.0
 pytest==9.2.0
+scipy==1.18.1
 python-dotenv==1.2.4

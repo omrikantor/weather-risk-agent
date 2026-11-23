@@ -120,19 +120,24 @@ weather-risk-agent/
 
 ## Phase 2 — Hub list & data ingestion (≈2.5 h, no LLM cost)
 
-### 2.1 Hub list (`data/hubs.yaml`): ~24 hubs, an explicit assumption
-Region = US Census Bureau regions (documented definition of "Midwest").
-- **Midwest:** Chicago IL, Minneapolis MN, Detroit MI, Indianapolis IN, Columbus OH, Kansas City MO, St. Louis MO, Omaha NE
-- **South:** Dallas TX, Houston TX, Miami FL, Atlanta GA, Memphis TN, Louisville KY, Charlotte NC, New Orleans LA
-- **West:** Denver CO, Phoenix AZ, Los Angeles CA, Seattle WA, Salt Lake City UT
-- **Northeast:** Newark NJ (NYC metro), Boston MA, Philadelphia PA
+### 2.1 Hub list (`data/hubs.yaml`): 45 hubs covering most of the US, an explicit assumption
+Region = US Census Bureau regions (documented definition of "Midwest"). Chosen to (a) cover the sample questions, (b) be real logistics markets, (c) span every hazard type, (d) cover the map densely so a nearby stand-in hub exists for most locations.
+- **Midwest (13):** Chicago, Minneapolis, Detroit, Indianapolis, Columbus, Kansas City, St. Louis, Omaha, Milwaukee, Cincinnati, Des Moines, Wichita, Fargo
+- **South (16):** Dallas, Houston, Miami, Atlanta, Memphis, Louisville, Charlotte, New Orleans, San Antonio, Oklahoma City, Nashville, Jacksonville, Orlando, Birmingham, Richmond, El Paso (Texas → South under Census regions)
+- **West (12):** Denver, Phoenix, Los Angeles, Seattle, Salt Lake City, Oakland (SF Bay), Sacramento, Portland, Las Vegas, Albuquerque, Boise, Billings
+- **Northeast (6):** Newark (NYC metro), Boston, Philadelphia, Pittsburgh, Buffalo, Albany
+
+Total: 47 hubs. Coordinates are city-center points (an approximation of each hub's site).
+
+The hub list is **configuration, not code**: for a real client it would be their network (ideally with throughput/revenue per hub). Adding a hub = one YAML entry + re-running `build_db`.
 
 Each entry has `id` (slug, e.g. `dallas`), display name, lat/lon (a distribution-area point near the city), `county_fips` and `region`. Get the county FIPS once with the FCC Area API (`https://geo.fcc.gov/api/census/area?lat=..&lon=..`) and hard-code it.
 
 ### 2.2 SQLite schema (`app/db.py`)
 - `hubs(id PK, name, state, lat, lon, county_fips, region)`
 - `daily_weather(hub_id, date, tmax_c, tmin_c, precip_mm, snowfall_cm, wind_gust_kmh, weather_code, PK(hub_id,date))`
-- `nri_hazards(hub_id, hazard, risk_score, risk_rating, source_version)`, where hazard ∈ winter_weather, ice_storm, cold_wave, hurricane, coastal_flood, riverine_flood, tornado, hail, strong_wind, heat_wave
+- `nri_county(county_fips, hazard, risk_score, risk_rating)` for **all US counties** (needed for stand-in matching), where hazard ∈ winter_weather, ice_storm, cold_wave, hurricane, coastal_flood, riverine_flood, tornado, hail, strong_wind, heat_wave. Hubs join to it on `county_fips`
+- `places(name, state, county_fips?, lat, lon)` and `counties(county_fips, name, state, lat, lon)` from the Census Gazetteer files, used to locate places that aren't hubs
 - `hub_metrics(hub_id, metric, value, period_start, period_end)`
 - `risk_scores(hub_id, computed_at, scoring_version, composite, winter, hurricane, flood, convective, heat, tier, details_json)`, which keeps history so the alert job can diff
 - `alerts(id, hub_id, created_at, kind, old_value, new_value, message, delivered)`
@@ -146,14 +151,42 @@ Each entry has `id` (slug, e.g. `dallas`), display name, lat/lon (a distribution
 - Note in the docs: ERA5-based reanalysis grid (~9–25 km), not station data. Free for non-commercial use; production would use the commercial plan.
 
 ### 2.4 FEMA National Risk Index (`ingest/fema_nri.py`)
-- Download the county-level NRI table (CSV) from FEMA's NRI data resources page once and store it in `data/raw/`.
-- Pick each hazard's **risk score** column (e.g. `WNTW_RISKS`, `ISTM_RISKS`, `CWAV_RISKS`, `HRCN_RISKS`, `CFLD_RISKS`, `RFLD_RISKS`, `TRND_RISKS`, `HAIL_RISKS`, `SWND_RISKS`, `HWAV_RISKS`). **Verify the exact names against the NRI data dictionary at download time.**
-- Join on `county_fips`. NRI scores are national percentiles (0–100). Missing values (e.g. no coastal flood inland) are stored as 0 and the substitution is recorded.
+- **Source (as built):** FEMA's official NRI Counties feature service on ArcGIS Online (owner `FEMA_NationalRiskIndex`, version "December 2025", 3,232 counties), paged via the ArcGIS REST API. The `hazards.fema.gov` bulk download refused connections from our environment. Cached as `data/raw/nri_counties.csv`.
+- Hazard prefixes: `WNTW, ISTM, CWAV, HRCN, CFLD, IFLD` (Inland Flooding, which replaces the older Riverine Flooding), `TRND, HAIL, SWND, HWAV`.
+- **Decision: use annualized event frequency (`<HAZ>_AFREQ`), not the risk score.** The NRI hazard risk score scales with exposed property and population, so big urban counties score high on everything (Dallas County ≈ 99 for winter weather; Hennepin ≈ 99.6 for tornado). For a logistics hub, how often a hazard occurs is what matters. We store `afreq`, a national percentile of it (`freq_pctl`, 0 when the hazard never occurs), plus `risk_score` and the loss-rate percentile for reference.
+- Known caveat: percentiles flatten the low end (e.g. Phoenix's hurricane percentile is ~50 though its frequency is ~26× lower than Miami's). Phase 3 may scale hurricane by raw frequency instead.
+- Store every county (not just hub counties). NRI scores are national percentiles (0–100). Missing values (e.g. no coastal flood inland) are stored as 0 and the substitution is recorded.
 
-### 2.5 `build_db.py` CLI
-`python -m app.ingest.build_db [--refresh]` creates the schema, loads hubs, ingests Open-Meteo + NRI, then calls the scoring engine (Phase 3) and writes `risk_scores`.
+### 2.4b Census Gazetteer (`ingest/census_gazetteer.py`)
+- Download the Census Gazetteer **places** file (every US city/town with lat/lon) and **counties** file (county centroids + FIPS) once; cache in `data/raw/`.
+- Load both into SQLite. A place's county = nearest county centroid within the same state (an approximation, documented).
 
-**Done when:** `risk.db` holds about 24 × 3,650 daily rows plus NRI rows for every hub, and a quick SQL query of Denver's 2025 snow days returns a sensible number.
+### 2.5 Method-parameter rules (apply to every phase)
+Data values are never altered; we only compute from them. Method parameters (radii, thresholds, weights) are human design choices, so:
+1. Each parameter is chosen for a stated reason or by a data-based test, **before** looking at hub rankings.
+2. Sanity checks catch bugs only; an unexpected ranking is a finding, not something to tune away.
+3. No per-hub adjustments, ever.
+4. Cross-check with independent sources (e.g. SPC counts vs FEMA tornado frequency), not with expectations.
+5. Every parameter lives in `app/scoring/params.yaml` (versioned) with its rationale, and is exposed through `get_methodology`.
+Determinism = same data + same config → same output.
+
+### 2.6 Tier A: long-term event records around each hub
+- **HURDAT2** (NOAA NHC, Atlantic + NE Pacific): 6-hourly storm positions and winds. Window **1950–2025** (reliable from aircraft reconnaissance). Table `storm_tracks`.
+- **SPC severe reports** (NOAA Storm Prediction Center): tornado, hail, wind reports with coordinates and magnitude. Window **1996 → latest full year** (limits the long-term growth in reporting). Filters: tornado **EF1+**, hail **≥ 1 in**, wind **≥ 50 kt** (official severe thresholds). Table `severe_reports`.
+- **Per-hub rates** (`hub_event_rates`, one row per hub × hazard × radius): count within the radius, rate per year, 90% Poisson range, P(≥1 event in 10 years). Hurricanes: storms whose track passes within the radius (tropical-storm strength or more), plus a hurricane-strength-at-closest-approach count. Track segments are interpolated between 6-hour fixes.
+- **Radius test** (rule 1): tornado/hail/wind 25 / 50 / 100 km; hurricane 100 / 150 / 200 km. Report rank correlation of hub rankings between radii; use the middle radius if stable, and flag the parameter as sensitive if not.
+- Cross-check: SPC tornado rates vs FEMA tornado frequency for hub counties.
+
+### 2.7 Tier B: measured station data (NOAA GHCN-Daily), Open-Meteo as backup
+- **Station rule:** nearest `USW` (major airport/first-order) station within 40 km whose 1996–2025 PRCP and TMAX records are ≥ 90% complete; otherwise the next nearest. Chosen from NOAA's station inventory, not by hand. Table `hub_stations` (station id, name, distance, completeness).
+- **Data:** daily PRCP, SNOW, TMAX, TMIN, WSF5 (peak 5-second gust), and observed weather types WT03 (thunder), WT04 (ice pellets), WT05 (hail), WT06 (glaze), WT17 (freezing rain), **1996–2025** (30-year window). Source: NCEI Access Data Service (no token). Table `station_daily`.
+- **Combination:** per day and variable, station value if present, else Open-Meteo (2016–2025 only); every value carries its source. Share of gap-filled values reported per hub.
+- Caveats: weather-type flags are recorded inconsistently (a missing flag doesn't prove nothing happened); the airport can be 10–25 km from the city center.
+
+### 2.8 `build_db.py` CLI
+`python -m app.ingest.build_db [--refresh]` creates the schema, loads hubs, ingests Open-Meteo, NRI, Census, HURDAT2, SPC and GHCN, computes hub event rates, then (from Phase 3) calls the scoring engine and writes `risk_scores`.
+
+**Done when:** `risk.db` holds about 45 × 3,650 daily rows, NRI rows for every county (and every hub's county), the places and counties tables, and a quick SQL query of Denver's 2025 snow days returns a sensible number.
 
 ---
 
@@ -164,7 +197,7 @@ Each entry has `id` (slug, e.g. `dallas`), display name, lat/lon (a distribution
 |---|---|
 | `snow_day` | snowfall ≥ 1 cm (a trace day is ≥ 0.1 cm; both are reported for the Denver-style question) |
 | `heavy_snow_day` | snowfall ≥ 10 cm |
-| `ice_day` | weather_code ∈ {56, 57, 66, 67} (freezing drizzle/rain; a model-derived proxy) |
+| `ice_day` | **Changed:** the Open-Meteo daily archive never emits freezing codes (56/57/66/67) or thunderstorm codes (95–99), checked over all data. Proxy instead: precip ≥ 2 mm, tmin < 0 °C, tmax 0–3 °C, and a liquid part (precip − 0.7 × snowfall_cm) ≥ 1 mm. Crude, so the ice signal leans on NRI ice-storm frequency |
 | `extreme_cold_day` | tmin ≤ −15 °C |
 | `heavy_rain_day` | precip ≥ 50 mm |
 | `max_3day_precip` | max rolling 3-day precip sum per year |
@@ -184,10 +217,12 @@ Each hazard family = `w_nri × NRI component + w_climate × climate component`
 | Family | NRI inputs | Climate inputs | w_nri / w_climate |
 |---|---|---|---|
 | Winter | winter_weather, ice_storm, cold_wave | snow_days, heavy_snow_days, ice_days, extreme_cold_days | 0.5 / 0.5 |
-| Hurricane | hurricane, coastal_flood | damaging_wind_days | 0.8 / 0.2 (10 years is too short a window for hurricanes) |
-| Flood | riverine_flood, coastal_flood | heavy_rain_days, max_3day_precip | 0.5 / 0.5 |
-| Convective | tornado, hail, strong_wind | damaging_wind_days | 0.6 / 0.4 |
+| Hurricane | coastal_flood | **HURDAT2 storm rate within radius (1950–2025)** + damaging_wind_days | to set in Phase 3 (rule 1) |
+| Flood | inland_flood, coastal_flood | heavy_rain_days, max_3day_precip | 0.5 / 0.5 |
+| Convective | — (FEMA kept as cross-check) | **SPC tornado / hail / wind rates within radius (1996+)** + thunder days, damaging_wind_days | to set in Phase 3 (rule 1) |
 | Heat | heat_wave | extreme_heat_days | 0.5 / 0.5 |
+
+**Updated after Tiers A/B:** climate metrics come from station data (1996–2025, measured snow; observed ice and thunder) with Open-Meteo filling gaps. Rare-event hazards use long-record rates instead of FEMA percentiles. Exact formulas and normalization are fixed in Phase 3 under the parameter rules (2.5).
 
 ### 3.4 Composite = Weather Disruption Risk Index (WDRI)
 - Weights (an assumption, editable): winter 0.25, flood 0.20, hurricane 0.20, convective 0.20, heat 0.15.
@@ -214,6 +249,9 @@ Every tool is a plain Python function with a **Pydantic input model**. The OpenA
 | `get_hub_risk_breakdown` | `hub_id` | composite, tier, contributions, top drivers, raw metrics |
 | `get_weather_stat` | `hub_id`, `metric` (enum), `start_date`, `end_date` | count, total_days, pct, threshold used, data source + coverage |
 | `get_methodology` | — | thresholds, weights, data sources, data window, assumptions |
+| `find_nearest_hubs` | `location` (free text, e.g. "Tampa, FL") | the place found (or candidates if ambiguous), the 3 nearest hubs with distance (km), **hazard-profile similarity** (0–100), the biggest hazard differences, a recommended stand-in hub, and a far-away caveat flag (> 250 km) |
+
+**Stand-in matching (deterministic):** place → county (nearest centroid) → that county's 10 NRI hazard scores → compare with each candidate hub's scores (similarity 0–100 from the distance between the two 10-score vectors) → recommended = best of `0.8 × similarity + 0.2 × proximity`. Lookup + haversine over 45 hubs takes milliseconds. The LLM only explains the result and asks the user before analyzing the stand-in.
 | `get_active_alerts` *(COULD)* | `hub_id` | live NWS alerts (`api.weather.gov/alerts/active?point=lat,lon`, generic User-Agent) |
 
 - Each tool result includes `source`, `data_window` and `scoring_version`, so answers can cite them.
@@ -250,7 +288,7 @@ FinalAnswer:
 
 ### 5.3 System prompt (`prompts.py`)
 - Role: a weather-risk analyst assistant for hub investment prioritization.
-- Hard rules: **never compute or estimate numbers yourself; every number must come from a tool result**; use `get_methodology` to explain scoring; say which assumptions apply; state uncertainty; if a hub or region isn't in the network, say so; push back on false premises ("Dallas is not actually in the top tier, here's why"); short answers with clear structure.
+- Hard rules: **never compute or estimate numbers yourself; every number must come from a tool result**; use `get_methodology` to explain scoring; say which assumptions apply; state uncertainty; if a location isn't a hub, say there's no data for it, call `find_nearest_hubs`, recommend the best-matching stand-in with its distance and similarity, and **ask before analyzing it**; if a place name is ambiguous, ask which state; push back on false premises ("Dallas is not actually in the top tier, here's why"); short answers with clear structure.
 - Definitions the model should use: "last year" = the previous full calendar year relative to today (inject today's date per turn as a short developer message after the stable prefix, so it doesn't break prompt caching), and the Census region definitions.
 
 ### 5.4 The loop (`agent.py`)
@@ -335,7 +373,10 @@ Plain HTML/JS, no build step (`web/`):
 | Methodology | "How do you score hubs?" | mentions weights + sources |
 | False premise | "Why is Seattle the riskiest hub?" | does not agree; cites actual rank |
 | Out of scope | "Weather in Paris tomorrow?" | `question_type=out_of_scope`; no fabricated figures |
-| Unknown hub | "Risk for our Boise hub?" | says it's not in the network |
+| Non-hub location | "Risk for a hub in Tampa?" | says no data; recommends a stand-in (expected: a Florida hub); asks before analyzing; no figures for Tampa itself |
+| Distant location | "What about Spokane?" | stronger caveat (stand-in > 250 km) |
+| Ambiguous place | "What about Springfield?" | asks which state |
+| Stand-in follow-up (multi-turn) | Tampa → "yes" | analyzes the recommended hub |
 
 ### 8.2 Checks (deterministic, from `evals/oracle.py`, which calls the engine/DB directly)
 `schema_valid`, `validator_passed`, `expected_tools_called`, `figures_match_oracle`, `ranking_matches`, `must_mention` / `must_not_mention`, `question_type`.
