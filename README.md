@@ -9,6 +9,8 @@ What you can do in the web app:
 - Browse the leaderboard of all 47 hubs by hazard and region, and open any hub to see the evidence behind its score.
 - Use voice: click the microphone to speak a question (Chrome, Edge and Safari), check the text and press Enter. Turn on "Read aloud" to hear answers, or click the speaker icon on any answer.
 
+**Live demo:** https://weather-risk-agent-gz90.onrender.com (the access code is provided with the submission). The free hosting plan sleeps when idle, so the first visit can take about a minute.
+
 ## Documentation
 
 | Document | Content |
