@@ -1,5 +1,7 @@
 # Weather Risk Intelligence Agent: Implementation Plan
 
+> **Historical document.** This is the plan written at the start of the project and kept unchanged as part of the AI session record. Several parts changed during the work (for example the model provider, and the risk measure, which moved from hand-picked weights to NWS warnings and FEMA severity). The final design is described in [DESIGN.md](DESIGN.md), and every change of direction with its reason is in [DECISIONS.md](DECISIONS.md).
+>
 > Built with Claude Code. This plan is part of the "AI session" deliverable.
 
 ## Decisions log (made before this plan)
