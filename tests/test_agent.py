@@ -14,11 +14,10 @@ from app.config import get_settings
 from tests.test_tools import check_strict
 
 
-def answer(text="ok", figures=(), hubs=(), qtype="statistic", confirm=False) -> str:
+def answer(text="ok", hubs=(), qtype="statistic", confirm=False) -> str:
     return json.dumps({
         "question_type": qtype, "answer_markdown": text, "measure_used": "weather_statistic", "hubs": list(hubs),
-        "figures": [{"label": l, "value": v, "unit": "u", "source_tool": "t"} for l, v in figures],
-        "assumptions": [], "uncertainty": {"level": "low", "reasons": []}, "data_sources": [],
+        "assumptions": [], "uncertainty": {"level": "low", "reasons": []},
         "awaiting_user_confirmation": confirm, "suggested_followups": []})
 
 
@@ -40,34 +39,57 @@ def test_numbers_collected_from_keys_and_strings():
     assert {150.0, 4.34, 1.0} <= pool
 
 
-def test_fabricated_figure_and_text_number_are_problems():
-    tools = [{"percent_of_days": 4.93}]
-    v = validate(answer("Denver had snow on 7.5% of days", figures=[("pct", 7.5)]), tools, "q", [])
-    assert not v.ok and len(v.problems) == 2
+def test_fabricated_number_is_a_problem():
+    tools = [("get_weather_stat", {"percent_of_days": 4.93})]
+    v = validate(answer("Denver had snow on 7.5% of days"), tools, "q", tools)
+    assert not v.ok and len(v.problems) == 1
 
 
-def test_valid_answer_passes_and_years_small_ints_ignored():
-    tools = [{"percent_of_days": 4.93, "count": 18}]
-    v = validate(answer("In 2025, 18 days (4.9%) - top 3", figures=[("pct", 4.93), ("days", 18)]), tools, "q", [])
+def test_figures_are_traced_by_code_and_years_small_ints_ignored():
+    tools = [("get_weather_stat", {"percent_of_days": 4.93, "count": 18, "source": "NOAA GHCN-Daily"})]
+    v = validate(answer("In 2025, 18 days (4.9%) - top 3"), tools, "q", tools)
     assert v.ok, v.problems
+    assert [(f["value_in_answer"], f["source_tool"], f["field"]) for f in v.figures] == [
+        ("18", "get_weather_stat", "count"), ("4.9", "get_weather_stat", "percent_of_days")]
+    assert v.data_sources == ["NOAA GHCN-Daily"]
+
+
+def test_share_shown_as_percent_is_traced():
+    tools = [("get_methodology", {"severity_shares": {"flood": {"share": 0.164}}})]
+    v = validate(answer("Flood severity share is 16.4%"), tools, "q", tools)
+    assert v.ok and v.figures[0]["match"] == "share shown as percent"
+    assert v.data_sources == ["Method parameters (params.yaml)"]
+
+
+def test_exact_match_preferred_over_percent_interpretation():
+    tools = [("get_hub_risk_breakdown", {"contributions": [{"hazard": "winter", "severity_share": 0.036},
+                                                           {"hazard": "heat", "warning_days_per_year": 3.6}]})]
+    v = validate(answer("3.6 heat warning days per year"), tools, "q", tools)
+    assert v.figures[0]["field"] == "contributions[1].warning_days_per_year"
+
+
+def test_most_recent_tool_output_wins():
+    tools = [("rank_hubs", {"value": 1.5}), ("compare_hubs", {"value": 1.5})]
+    v = validate(answer("about 1.5 days"), tools, "q", [])
+    assert v.figures[0]["source_tool"] == "compare_hubs"
 
 
 def test_number_from_user_question_is_allowed():
     v = validate(answer("Here are the top 15 hubs"), [], "show the top 15 hubs", [])
-    assert v.ok
+    assert v.ok and v.figures[0]["source_tool"] == "user question"
 
 
 def test_rank_mismatch_is_a_problem():
     turn = [("rank_hubs", {"ranking": [{"hub_id": "dallas", "rank": 14}]})]
     hub = {"hub_id": "dallas", "rank": 3, "severe_days_per_year": None, "tier": None, "key_drivers": []}
-    v = validate(answer(hubs=[hub], qtype="ranking"), [turn[0][1]], "q", turn)
+    v = validate(answer(hubs=[hub], qtype="ranking"), turn, "q", turn)
     assert any("rank" in p for p in v.problems)
 
 
 def test_stand_in_requires_confirmation():
     turn = [("find_nearest_hubs", {"status": "matched", "recommended_hub_id": "orlando"})]
-    assert not validate(answer(qtype="stand_in"), [turn[0][1]], "q", turn).ok
-    assert validate(answer(qtype="stand_in", confirm=True), [turn[0][1]], "q", turn).ok
+    assert not validate(answer(qtype="stand_in"), turn, "q", turn).ok
+    assert validate(answer(qtype="stand_in", confirm=True), turn, "q", turn).ok
 
 
 def test_invalid_json_is_a_problem():
@@ -122,15 +144,16 @@ needs_db = pytest.mark.skipif(not get_settings().db_file.exists(), reason="datab
 @needs_db
 def test_tool_call_then_answer():
     fake = FakeLLM([resp(calls=[ToolCall("c1", "list_hubs", '{"region": "West"}')]),
-                    resp(text=answer("There are 12 West hubs", figures=[("hubs", 12)]))])
+                    resp(text=answer("There are 12 West hubs"))])
     r = Agent(llm=fake).run_turn("How many West hubs?")
     assert r.answer["answer_markdown"] == "There are 12 West hubs" and not r.validation_warnings
     assert [t.tool for t in r.trace] == ["list_hubs"] and r.steps == 2 and r.usage.calls == 2
+    assert r.answer["figures"][0]["source_tool"] == "list_hubs" and r.answer["data_sources"]
 
 
 @needs_db
 def test_failed_validation_retries_once_then_returns_warnings():
-    bad = answer("It is 99.9 days", figures=[("x", 99.9)])
+    bad = answer("It is 99.9 days")
     fake = FakeLLM([resp(text=bad), resp(text=bad)])
     r = Agent(llm=fake).run_turn("q")
     assert r.retried and r.validation_warnings and fake.calls == 2
@@ -139,8 +162,8 @@ def test_failed_validation_retries_once_then_returns_warnings():
 @needs_db
 def test_retry_can_fix_the_answer():
     fake = FakeLLM([resp(calls=[ToolCall("c1", "list_hubs", '{"region": "West"}')]),
-                    resp(text=answer("There are 13 West hubs", figures=[("hubs", 13.5)])),
-                    resp(text=answer("There are 12 West hubs", figures=[("hubs", 12)]))])
+                    resp(text=answer("There are 13.5 West hubs")),
+                    resp(text=answer("There are 12 West hubs"))])
     r = Agent(llm=fake).run_turn("How many West hubs?")
     assert r.retried and not r.validation_warnings
 

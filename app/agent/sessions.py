@@ -20,7 +20,7 @@ class Session:
     id: str
     items: list[dict] = field(default_factory=list)          # conversation sent to the model
     turn_starts: list[int] = field(default_factory=list)     # index in items where each turn starts
-    tool_outputs: list[dict] = field(default_factory=list)   # all full tool outputs (for validation)
+    tool_outputs: list[tuple[str, dict]] = field(default_factory=list)  # (tool, full output), for validation
     last_used: float = field(default_factory=time.time)
 
     def start_turn(self) -> None:

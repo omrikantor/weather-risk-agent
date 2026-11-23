@@ -23,6 +23,8 @@ KPI_DEFINITIONS = {
                                "(locally calibrated thresholds).",
 }
 SOURCES = "NWS warnings (IEM archive, 2006-2025); FEMA disaster declarations (OpenFEMA, 1996-2025)"
+EVIDENCE_SOURCES = ("NOAA GHCN-Daily airport stations 1996-2025 (Open-Meteo fills gaps); NOAA HURDAT2 storm tracks "
+                    "1950-2025; NOAA SPC storm reports 1996-2025")
 
 
 def _r(x, n=2):
@@ -186,8 +188,7 @@ def compare_hubs(args: s.CompareHubsInput, conn) -> dict:
                     "ranges_90pct": {o["hub_id"]: o["hazards"][h]["severe_days_range_90pct"] for o in out}}
     return {"hubs": out, "by_hazard": ranks, "definitions": KPI_DEFINITIONS,
             "note": "If two hubs' 90% ranges overlap heavily, treat the difference as uncertain.",
-            "source": SOURCES,
-            "evidence_sources": "GHCN-Daily airport stations 1996-2025 (Open-Meteo fills gaps); NOAA HURDAT2; NOAA SPC"}
+            "source": SOURCES, "evidence_sources": EVIDENCE_SOURCES}
 
 
 @_with_conn
@@ -218,7 +219,8 @@ def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
         "station": {"id": st["station_id"], "name": st["station_name"], "distance_km": st["distance_km"],
                     "measures_gusts_and_weather_events": st["gust_measured"]} if st else None,
         "confidence": d["confidence"], "confidence_reasons": d["confidence_reasons"],
-        "definitions": KPI_DEFINITIONS, "source": SOURCES, "scoring_version": d["scoring_version"],
+        "definitions": KPI_DEFINITIONS, "source": SOURCES, "evidence_sources": EVIDENCE_SOURCES,
+        "scoring_version": d["scoring_version"],
         "computed_at": d["computed_at"],
     }
 

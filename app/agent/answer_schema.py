@@ -1,4 +1,9 @@
-"""FinalAnswer: the structured output the LLM must return (the LLM -> code contract)."""
+"""FinalAnswer: the structured output the LLM must return (the LLM -> code contract).
+
+The model does NOT list its numbers or sources: code traces every number in answer_markdown back
+to the tool result it came from (validator.trace_figures) and derives data sources from the tools
+actually called. That is both faster (fewer output tokens) and more deterministic.
+"""
 
 from typing import Literal
 
@@ -20,13 +25,6 @@ class HubMention(_Strict):
     key_drivers: list[str] = Field(description="Short phrases, e.g. 'flash flooding'.")
 
 
-class Figure(_Strict):
-    label: str = Field(description="What the number is, e.g. 'Denver snow days (>=1 cm), 2025'.")
-    value: float = Field(description="The number exactly as given by the tool (may be rounded for display).")
-    unit: str = Field(description="e.g. 'days/yr', '%', 'storms/decade', 'km', 'cm'.")
-    source_tool: str = Field(description="Name of the tool whose result contains this number.")
-
-
 class Uncertainty(_Strict):
     level: Literal["low", "medium", "high"]
     reasons: list[str]
@@ -35,13 +33,12 @@ class Uncertainty(_Strict):
 class FinalAnswer(_Strict):
     question_type: Literal["ranking", "comparison", "statistic", "explanation", "methodology", "stand_in",
                            "clarification", "out_of_scope"]
-    answer_markdown: str = Field(description="The answer shown to the user (concise, structured).")
+    answer_markdown: str = Field(description="The answer shown to the user. Every number in it must be copied "
+                                             "from a tool result.")
     measure_used: Literal["severe_disruption_days", "routine_disruption_days", "weather_statistic", "none"]
     hubs: list[HubMention]
-    figures: list[Figure] = Field(description="EVERY number used in answer_markdown, with its source tool.")
     assumptions: list[str]
     uncertainty: Uncertainty
-    data_sources: list[str]
     awaiting_user_confirmation: bool = Field(
         description="True when the answer asks the user to confirm something first (e.g. analyze a stand-in hub).")
     suggested_followups: list[str]

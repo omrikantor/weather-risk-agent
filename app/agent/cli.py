@@ -27,7 +27,10 @@ def show(result, trace: bool) -> None:
               f"cached={u.cached_tokens} out={u.output_tokens} (reasoning {u.reasoning_tokens}) "
               f"cost=${u.cost_usd:.4f} latency={result.latency_ms / 1000:.1f}s stop={result.stopped_reason}")
         print(f"  question_type={a['question_type']} measure={a['measure_used']} "
-              f"uncertainty={a['uncertainty']['level']} figures={len(a['figures'])}")
+              f"uncertainty={a['uncertainty']['level']} traced_figures={len(a['figures'])}")
+        for f in a["figures"]:
+            print(f"    {f['value_in_answer']:>8} <- {f['source_tool']}.{f['field']} ({f['match']})")
+        print(f"  sources: {a['data_sources']}")
 
 
 def main() -> None:

@@ -48,9 +48,10 @@ class AgentResult:
 
 
 def _fallback_answer(text: str, question_type: str = "clarification") -> dict:
-    return FinalAnswer(question_type=question_type, answer_markdown=text, measure_used="none", hubs=[], figures=[],
-                       assumptions=[], uncertainty={"level": "high", "reasons": [text]}, data_sources=[],
-                       awaiting_user_confirmation=False, suggested_followups=[]).model_dump(mode="json")
+    a = FinalAnswer(question_type=question_type, answer_markdown=text, measure_used="none", hubs=[],
+                    assumptions=[], uncertainty={"level": "high", "reasons": [text]},
+                    awaiting_user_confirmation=False, suggested_followups=[]).model_dump(mode="json")
+    return {**a, "figures": [], "data_sources": []}
 
 
 class Agent:
@@ -85,7 +86,7 @@ class Agent:
                         args = call.arguments
                     trace.append(ToolTrace(call.name, args, int((time.time() - t1) * 1000), out.get("error")))
                     turn_tools.append((call.name, out))
-                    session.tool_outputs.append(out)
+                    session.tool_outputs.append((call.name, out))
                     session.items.append(tool_output_item(call.call_id, out))
                 continue
 
@@ -101,8 +102,12 @@ class Agent:
             v = validate(resp.text, session.tool_outputs, message, turn_tools)
             if v.ok or retried:
                 warnings = v.problems
-                answer = v.answer.model_dump(mode="json") if v.answer else _fallback_answer(
-                    "I couldn't produce a well-formed answer; please rephrase the question.")
+                if v.answer:
+                    # Provenance is built by code, not by the model.
+                    answer = {**v.answer.model_dump(mode="json"), "figures": v.figures,
+                              "data_sources": v.data_sources}
+                else:
+                    answer = _fallback_answer("I couldn't produce a well-formed answer; please rephrase the question.")
                 break
             retried = True
             log.info("validation problems, retrying: %s", v.problems)
