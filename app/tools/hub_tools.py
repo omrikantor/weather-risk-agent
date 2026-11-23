@@ -22,9 +22,9 @@ KPI_DEFINITIONS = {
     "routine_disruption_days": "Expected days per year with an NWS warning for the hazard at the hub "
                                "(locally calibrated thresholds).",
 }
-SOURCES = "NWS warnings (IEM archive, 2006-2025); FEMA disaster declarations (OpenFEMA, 1996-2025)"
-EVIDENCE_SOURCES = ("NOAA GHCN-Daily airport stations 1996-2025 (Open-Meteo fills gaps); NOAA HURDAT2 storm tracks "
-                    "1950-2025; NOAA SPC storm reports 1996-2025")
+SOURCES = "National Weather Service warnings (2006-2025) and FEMA disaster declarations (1996-2025)"
+EVIDENCE_SOURCES = ("Measured weather at airport stations (NOAA, 1996-2025), NOAA hurricane tracks (1950-2025) and "
+                    "NOAA severe-storm reports (1996-2025)")
 
 
 def _r(x, n=2):
@@ -279,7 +279,7 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
         return {**base, "count": count, "days_with_data": len(covered),
                 "percent_of_days": _r(100 * count / len(covered)) if covered else None,
                 "definition": f"days with an NWS warning of types {wp['phenomena'][hazard]} at the hub",
-                "source": f"NWS warnings via IEM archive ({wp['first_year']}-{wp['last_year']})",
+                "source": f"National Weather Service warnings ({wp['first_year']}-{wp['last_year']})",
                 "caveat": None if len(covered) == len(days) else "part of the period is outside the warning archive window"}
 
     st = conn.execute("SELECT station_id, station_name, distance_km, gust_measured FROM hub_stations WHERE hub_id=?",
@@ -301,7 +301,8 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
         n = int(has.sum())
         return {**base, "count": count, "days_with_data": n, "percent_of_days": _r(100 * count / n) if n else None,
                 "definition": "observed " + ("glaze, freezing rain or ice pellets" if metric == "ice_day" else "thunder"),
-                "source": "NOAA GHCN-Daily weather-type flags", **({"station": st_info} if st_info else {}),
+                "source": "Weather events observed at the airport station (NOAA)",
+                **({"station": st_info} if st_info else {}),
                 "caveat": "Flags are recorded inconsistently; a missing flag doesn't prove the event didn't happen."}
 
     var = DAY_FLAGS[metric][0] if metric in DAY_FLAGS else TOTALS[metric]
@@ -321,9 +322,10 @@ def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
         count = int(combined.dropna().map(DAY_FLAGS[metric][1]).sum())
         res.update({"count": count, "percent_of_days": _r(100 * count / n) if n else None,
                     "definition": DAY_DEFINITIONS[metric]})
-    res["source"] = ("NOAA GHCN-Daily station (measured)" if sources["open_meteo_days"] == 0 else
-                     "NOAA GHCN-Daily station, gaps filled with Open-Meteo (modeled)") if sources["station_days"] else \
-        "Open-Meteo (modeled reanalysis)"
+    res["source"] = ("Measured weather at the airport station (NOAA)" if sources["open_meteo_days"] == 0 else
+                     "Measured weather at the airport station (NOAA), with a few missing days estimated from "
+                     "modeled data (Open-Meteo)") if sources["station_days"] else \
+        "Modeled weather data (Open-Meteo reanalysis); no station measurements for this period"
     if n < 0.8 * len(days):
         res["caveat"] = f"Data available for only {n} of {len(days)} days."
     return res

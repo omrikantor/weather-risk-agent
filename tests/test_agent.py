@@ -58,7 +58,7 @@ def test_share_shown_as_percent_is_traced():
     tools = [("get_methodology", {"severity_shares": {"flood": {"share": 0.164}}})]
     v = validate(answer("Flood severity share is 16.4%"), tools, "q", tools)
     assert v.ok and v.figures[0]["match"] == "share shown as percent"
-    assert v.data_sources == ["Method parameters (params.yaml)"]
+    assert v.data_sources == ["Scoring methodology (see Methodology)"]
 
 
 def test_exact_match_preferred_over_percent_interpretation():

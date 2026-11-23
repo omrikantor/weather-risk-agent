@@ -27,7 +27,7 @@ ANALYSIS_TOOLS = {"get_hub_risk_breakdown", "compare_hubs", "rank_hubs", "get_we
 TOOL_SOURCES = {             # sources for tools whose output has no explicit "source" field
     "list_hubs": "Hub network and US Census regions (prototype assumption)",
     "find_nearest_hubs": "Census Gazetteer places + population estimates; FEMA National Risk Index county profiles",
-    "get_methodology": "Method parameters (params.yaml)",
+    "get_methodology": "Scoring methodology (see Methodology)",
 }
 
 
