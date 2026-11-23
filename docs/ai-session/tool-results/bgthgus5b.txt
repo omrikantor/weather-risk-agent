@@ -1,0 +1,460 @@
+patched app/tools/schemas.py 13
+patched app/tools/registry.py 5
+     1	"""Deterministic tool functions the agent calls. Every number an answer uses comes from here.
+     2	
+     3	Each result carries `source`, data windows and `scoring_version` so answers can cite them.
+     4	"""
+     5	
+     6	import json
+     7	import sqlite3
+     8	from datetime import date
+     9	
+    10	import pandas as pd
+    11	
+    12	from app.db import get_connection
+    13	from app.scoring import metrics as m
+    14	from app.scoring.engine import HAZARDS, latest_breakdown
+    15	from app.scoring.params import get_params
+    16	from app.tools import schemas as s
+    17	from app.tools.locate import find_nearest_hubs as _find_nearest_hubs
+    18	
+    19	KPI_DEFINITIONS = {
+    20	    "severe_disruption_days": "Disaster-level disruption days per year: expected days with an NWS warning that is "
+    21	                              "part of a federally declared major disaster (warning days x the hazard's FEMA severity "
+    22	                              "share). Measures rare, severe events; primary ranking for resilience investment. Values "
+    23	                              "below 1 are better read as 'about once every N years' (about_once_every_years).",
+    24	    "routine_disruption_days": "Warning days per year: days with an NWS warning for the hazard at the hub (locally "
+    25	                               "calibrated thresholds). Measures how often the hazard disrupts operations.",
+    26	}
+    27	
+    28	
+    29	def every_years(per_year) -> float | None:
+    30	    """0.36 per year -> 2.8 ('about once every 2.8 years'); None when >= 1 or zero."""
+    31	    return round(1 / per_year, 1) if per_year and 0 < per_year < 1 else None
+    32	SOURCES = "National Weather Service warnings (2006-2025) and FEMA disaster declarations (1996-2025)"
+    33	EVIDENCE_SOURCES = ("Measured weather at airport stations (NOAA, 1996-2025), NOAA hurricane tracks (1950-2025) and "
+    34	                    "NOAA severe-storm reports (1996-2025)")
+    35	
+    36	
+    37	def _r(x, n=2):
+    38	    return None if x is None else round(float(x), n)
+    39	
+    40	
+    41	def severe_range(hz: dict) -> tuple[float, float]:
+    42	    """Conservative 90% range for severe days: (warning-days low x share low, warning-days high x share high).
+    43	    Combining the two intervals this way is wider than a joint interval, i.e. it errs on the cautious side."""
+    44	    w_lo, w_hi = (x or 0.0 for x in hz["warning_days_range"])
+    45	    s = hz["severity_share"]
+    46	    return w_lo * s["lo"], w_hi * s["hi"]
+    47	
+    48	
+    49	def _latest(conn: sqlite3.Connection) -> pd.DataFrame:
+    50	    df = pd.read_sql(
+    51	        "SELECT r.hub_id, h.name, h.state, h.region, r.composite, r.winter, r.flood, r.convective, r.hurricane, "
+    52	        "r.heat, r.tier, r.scoring_version, r.computed_at, r.details_json FROM risk_scores r JOIN hubs h "
+    53	        "ON h.id = r.hub_id WHERE r.computed_at = (SELECT MAX(computed_at) FROM risk_scores)", conn)
+    54	    details = df["details_json"].map(json.loads)
+    55	    for h in HAZARDS:
+    56	        df[f"routine_{h}"] = details.map(lambda d, h=h: d["hazards"][h]["warning_days_per_year"] or 0.0)
+    57	        df[f"routine_{h}_lo"] = details.map(lambda d, h=h: d["hazards"][h]["warning_days_range"][0] or 0.0)
+    58	        df[f"routine_{h}_hi"] = details.map(lambda d, h=h: d["hazards"][h]["warning_days_range"][1] or 0.0)
+    59	        lo, hi = zip(*details.map(lambda d, h=h: severe_range(d["hazards"][h])))
+    60	        df[f"{h}_lo"], df[f"{h}_hi"] = list(lo), list(hi)
+    61	    df["routine_total"] = details.map(lambda d: d["routine_total"])
+    62	    df["confidence"] = details.map(lambda d: d["confidence"])
+    63	    return df.drop(columns="details_json")
+    64	
+    65	
+    66	def _with_conn(fn):
+    67	    def wrapper(args, conn=None):
+    68	        own = conn is None
+    69	        conn = conn or get_connection()
+    70	        try:
+    71	            return fn(args, conn)
+    72	        finally:
+    73	            if own:
+    74	                conn.close()
+    75	    wrapper.__name__, wrapper.__doc__ = fn.__name__, fn.__doc__
+    76	    return wrapper
+    77	
+    78	
+    79	# --------------------------------------------------------------------------- tools
+    80	
+    81	
+    82	@_with_conn
+    83	def list_hubs(args: s.ListHubsInput, conn) -> dict:
+    84	    q = "SELECT id, name, state, region FROM hubs" + (" WHERE region = ?" if args.region else "") + " ORDER BY id"
+    85	    rows = conn.execute(q, (args.region,) if args.region else ()).fetchall()
+    86	    return {"hubs": [{"hub_id": r[0], "name": r[1], "state": r[2], "region": r[3]} for r in rows],
+    87	            "count": len(rows), "note": "The hub network is an assumption of this prototype (47 US cities); "
+    88	                                        "regions are US Census Bureau regions."}
+    89	
+    90	
+    91	@_with_conn
+    92	def rank_hubs(args: s.RankHubsInput, conn) -> dict:
+    93	    df = _latest(conn)
+    94	    if args.region:
+    95	        df = df[df["region"] == args.region]
+    96	    severe = args.measure == "severe_disruption_days"
+    97	    prefix = "" if severe else "routine_"
+    98	    hazards = HAZARDS if args.hazard == "all" else [args.hazard]
+    99	    costs = {h: 1.0 for h in HAZARDS}
+   100	    if args.day_costs:
+   101	        costs.update({h: v for h, v in args.day_costs.model_dump().items() if v is not None})
+   102	    for col in ("", "_lo", "_hi"):
+   103	        df["value" + col] = sum(df[f"{prefix}{h}{col}"] * costs[h] for h in hazards)
+   104	    # Ties share a rank (1, 2, 2, 4 ...); order within a tie is by hub id only for display.
+   105	    df["rank"] = df["value"].round(6).rank(ascending=False, method="min").astype(int)
+   106	    df = df.sort_values(["rank", "hub_id"]).reset_index(drop=True)
+   107	    n_all = len(df)
+   108	    if args.top_n:
+   109	        df = df.head(args.top_n)
+   110	    default_view = severe and args.hazard == "all" and not args.day_costs
+   111	    tier_key = "tier" if default_view else "overall_tier"
+   112	    rows = [{"rank": int(r.rank), "hub_id": r.hub_id, "name": r.name, "state": r.state, "region": r.region,
+   113	             "value_days_per_year": _r(r.value), "about_once_every_years": every_years(r.value),
+   114	             "range_90pct": [_r(r.value_lo), _r(r.value_hi)],
+   115	             "no_exposure_in_data": bool(r.value == 0), tier_key: r.tier, "confidence": r.confidence}
+   116	            for r in df.itertuples()]
+   117	    ties = df[df.duplicated("rank", keep=False)]["rank"].nunique()
+   118	    notes = ["Hubs with equal values share a rank."] if ties else []
+   119	    notes.append("tier = High/Elevated/Low third of all 47 hubs by total disaster-level days (same measure "
+   120	                 "as this ranking)." if default_view else
+   121	                 "overall_tier refers to total disaster-level days across all hazards, NOT to this ranking's "
+   122	                 "measure; don't read it as this hazard's level.")
+   123	    notes.append("range_90pct combines the uncertainty of warning-day rates and FEMA severity shares (conservative).")
+   124	    return {"measure": args.measure, "definition": KPI_DEFINITIONS[args.measure], "hazard": args.hazard,
+   125	            "region": args.region, "hubs_considered": n_all, "ranking": rows,
+   126	            "day_costs": args.day_costs.model_dump() if args.day_costs else None, "notes": notes,
+   127	            "source": SOURCES, "scoring_version": df["scoring_version"].iloc[0] if len(df) else None}
+   128	
+   129	
+   130	def _evidence(d: dict, hazard: str) -> dict:
+   131	    """Key supporting metrics for one hazard from a hub breakdown."""
+   132	    desc, hz = d["descriptive"], d["hazards"][hazard]
+   133	
+   134	    def per_year(k):
+   135	        return _r(desc.get(k, {}).get("per_year"))
+   136	
+   137	    if hazard == "winter":
+   138	        ev = {"snow_days_per_year(>=1cm)": per_year("snow_day"), "heavy_snow_days_per_year(>=10cm)":
+   139	              per_year("heavy_snow_day"), "ice_days_per_year(observed)": per_year("ice_day"),
+   140	              "annual_snowfall_cm": _r(desc["annual_snowfall_cm"]["value"], 1),
+   141	              "extreme_cold_days_per_year(<=-15C)": per_year("extreme_cold_day")}
+   142	    elif hazard == "flood":
+   143	        ev = {"heavy_rain_days_per_year(>=50mm)": per_year("heavy_rain_day"),
+   144	              "avg_annual_max_3day_rain_mm": _r(desc["max_3day_precip_mm"]["value"], 1)}
+   145	    elif hazard == "convective":
+   146	        ev = {"tornado_report_days_per_year(EF1+,50km)": per_year("tornado_report_days"),
+   147	              "hail_report_days_per_year(>=1in,50km)": per_year("hail_report_days"),
+   148	              "wind_report_days_per_year(>=50kt,50km)": per_year("wind_report_days"),
+   149	              "damaging_gust_days_per_year(>=93km/h)": per_year("damaging_gust_day"),
+   150	              "thunder_days_per_year(observed)": per_year("thunder_day")}
+   151	    elif hazard == "hurricane":
+   152	        sr = hz["storm_record"]
+   153	        ev = {"tropical_storms_within_150km_per_decade": _r(sr["storms_per_decade"]),
+   154	              "hurricanes_within_150km_per_decade": _r(sr["hurricane_strength_per_decade"]),
+   155	              "p_storm_within_150km_next_10y": _r(sr["p_storm_within_10y"]),
+   156	              "notable_storms": sr["notable_storms"][:5], "record": "NOAA HURDAT2 1950-2025"}
+   157	    else:
+   158	        ev = {"extreme_heat_days_per_year(>=38C)": per_year("extreme_heat_day")}
+   159	    return ev
+   160	
+   161	
+   162	def _seasons(conn, hub_id: str) -> dict:
+   163	    return {h: json.loads(p) for h, p in conn.execute(
+   164	        "SELECT hazard, profile_json FROM hub_hazard_season WHERE hub_id=?", (hub_id,)).fetchall()}
+   165	
+   166	
+   167	def _hazard_summary(d: dict, h: str, season: dict | None = None) -> dict:
+   168	    hz = d["hazards"][h]
+   169	    ss = hz["severity_share"]
+   170	    lo, hi = severe_range(hz)
+   171	    return {"season": season or "too few warnings to describe a season",
+   172	            "severe_days_per_year": _r(hz["severe_days_per_year"]),
+   173	            "about_once_every_years": every_years(hz["severe_days_per_year"]),
+   174	            "severe_days_range_90pct": [_r(lo), _r(hi)],
+   175	            "warning_days_per_year": _r(hz["warning_days_per_year"]),
+   176	            "warning_days_range_90pct": [_r(x) for x in hz["warning_days_range"]],
+   177	            "severity_share": _r(ss["share"], 3), "severity_share_range_90pct": [_r(ss["lo"], 3), _r(ss["hi"], 3)],
+   178	            "evidence": _evidence(d, h)}
+   179	
+   180	
+   181	@_with_conn
+   182	def compare_hubs(args: s.CompareHubsInput, conn) -> dict:
+   183	    hazards = args.hazards or HAZARDS
+   184	    out, ranks = [], {}
+   185	    for hub in args.hub_ids:
+   186	        d = latest_breakdown(conn, hub.value)
+   187	        name, state = conn.execute("SELECT name, state FROM hubs WHERE id=?", (hub.value,)).fetchone()
+   188	        seasons = _seasons(conn, hub.value)
+   189	        out.append({"hub_id": hub.value, "name": name, "state": state, "overall_rank": d["rank"], "of": d["of"],
+   190	                    "tier": d["tier"], "severe_days_total": _r(d["severe_days_per_year"]),
+   191	                    "routine_days_total": _r(d["routine_total"]), "confidence": d["confidence"],
+   192	                    "hazards": {h: _hazard_summary(d, h, seasons.get(h)) for h in hazards}})
+   193	    for h in hazards:
+   194	        vals = {o["hub_id"]: o["hazards"][h]["severe_days_per_year"] or 0.0 for o in out}
+   195	        top = max(vals.values())
+   196	        leaders = [k for k, v in vals.items() if v == top]
+   197	        if top == 0:
+   198	            verdict = "none: no severe exposure in the data for any of these hubs"
+   199	        elif len(leaders) > 1:
+   200	            verdict = f"tie: {', '.join(leaders)}"
+   201	        else:
+   202	            verdict = leaders[0]
+   203	        ranks[h] = {"most_exposed_by_severe_days": verdict, "values": vals,
+   204	                    "ranges_90pct": {o["hub_id"]: o["hazards"][h]["severe_days_range_90pct"] for o in out}}
+   205	    return {"hubs": out, "by_hazard": ranks, "definitions": KPI_DEFINITIONS,
+   206	            "note": "If two hubs' 90% ranges overlap heavily, treat the difference as uncertain.",
+   207	            "source": SOURCES, "evidence_sources": EVIDENCE_SOURCES}
+   208	
+   209	
+   210	@_with_conn
+   211	def get_hub_risk_breakdown(args: s.HubBreakdownInput, conn) -> dict:
+   212	    hub = args.hub_id.value
+   213	    d = latest_breakdown(conn, hub)
+   214	    name, state, region, fips = conn.execute("SELECT name, state, region, county_fips FROM hubs WHERE id=?",
+   215	                                             (hub,)).fetchone()
+   216	    decl = conn.execute("SELECT title, incident_type, begin_date, end_date FROM fema_declarations "
+   217	                        "WHERE county_fips=? ORDER BY begin_date DESC LIMIT 8", (fips,)).fetchall()
+   218	    st = d["station"]
+   219	    seasons = _seasons(conn, hub)
+   220	    ranges = [severe_range(d["hazards"][h]) for h in HAZARDS]
+   221	    monthly = [r[0] for r in conn.execute("SELECT SUM(severe_days) FROM hub_monthly WHERE hub_id=? GROUP BY month "
+   222	                                          "ORDER BY month", (hub,)).fetchall()]
+   223	    peak = max(range(len(monthly)), key=lambda i: monthly[i]) if monthly else None
+   224	    return {
+   225	        "hub_id": hub, "name": name, "state": state, "region": region,
+   226	        "rank": d["rank"], "of": d["of"], "tier": d["tier"],
+   227	        "severe_days_per_year": _r(d["severe_days_per_year"]),
+   228	        "severe_days_range_90pct": [_r(sum(r[0] for r in ranges)), _r(sum(r[1] for r in ranges))],
+   229	        "routine_days_per_year": _r(d["routine_total"]),
+   230	        "routine_rank": d["routine_rank"],
+   231	        "contributions": [{"hazard": c["hazard"], "severe_days_per_year": _r(c["severe_days_per_year"]),
+   232	                           "about_once_every_years": every_years(c["severe_days_per_year"]),
+   233	                           "severe_days_range_90pct": [_r(x) for x in severe_range(d["hazards"][c["hazard"]])],
+   234	                           "share_of_total": _r(c["share_of_total"], 3),
+   235	                           "warning_days_per_year": _r(c["warning_days_per_year"]),
+   236	                           "severity_share": _r(c["severity_share"], 3)} for c in d["contributions"]],
+   237	        "hazards": {h: _hazard_summary(d, h, seasons.get(h)) for h in HAZARDS},
+   238	        "monthly_severe_days_jan_to_dec": [_r(v, 3) for v in monthly],
+   239	        "peak_month": MONTHS[peak] if peak is not None else None,
+   240	        "recent_fema_major_disasters_in_county": [
+   241	            {"title": t, "type": ty, "begin": b, "end": e} for t, ty, b, e in decl],
+   242	        "station": {"id": st["station_id"], "name": st["station_name"], "distance_km": st["distance_km"],
+   243	                    "measures_gusts_and_weather_events": st["gust_measured"]} if st else None,
+   244	        "confidence": d["confidence"], "confidence_reasons": d["confidence_reasons"],
+   245	        "definitions": KPI_DEFINITIONS, "source": SOURCES, "evidence_sources": EVIDENCE_SOURCES,
+   246	        "scoring_version": d["scoring_version"],
+   247	        "computed_at": d["computed_at"],
+   248	    }
+   249	
+   250	
+   251	DAY_FLAGS = {  # metric -> (variable, test) on the combined daily series
+   252	    "snow_day": ("snow_cm", lambda v: v >= 1.0), "trace_snow_day": ("snow_cm", lambda v: v >= 0.1),
+   253	    "heavy_snow_day": ("snow_cm", lambda v: v >= 10), "freezing_day": ("tmin_c", lambda v: v <= 0),
+   254	    "extreme_cold_day": ("tmin_c", lambda v: v <= -15), "rain_day": ("precip_mm", lambda v: v >= 1),
+   255	    "heavy_rain_day": ("precip_mm", lambda v: v >= 50), "extreme_heat_day": ("tmax_c", lambda v: v >= 38),
+   256	    "damaging_gust_day": ("gust_kmh", lambda v: v >= 93),
+   257	}
+   258	DAY_DEFINITIONS = {
+   259	    "snow_day": "snowfall >= 1 cm", "trace_snow_day": "snowfall >= 0.1 cm", "heavy_snow_day": "snowfall >= 10 cm",
+   260	    "freezing_day": "daily low <= 0 C", "extreme_cold_day": "daily low <= -15 C", "rain_day": "precipitation >= 1 mm",
+   261	    "heavy_rain_day": "precipitation >= 50 mm", "extreme_heat_day": "daily high >= 38 C (100 F)",
+   262	    "damaging_gust_day": "peak gust >= 93 km/h (58 mph)",
+   263	}
+   264	TOTALS = {"total_precipitation_mm": "precip_mm", "total_snowfall_cm": "snow_cm"}
+   265	
+   266	
+   267	GAP_FILL_METHOD = ("Per day: the station's measured value if present, otherwise Open-Meteo's modeled value "
+   268	                   "(available from 2016); days with neither are excluded. (Hub scoring instead switches a whole "
+   269	                   "variable to Open-Meteo 2016-2025 when station coverage over 1996-2025 is below 80%, so for a "
+   270	                   "few warm-climate stations' snowfall the two can differ slightly.)")
+   271	
+   272	
+   273	@_with_conn
+   274	def get_weather_stat(args: s.WeatherStatInput, conn) -> dict:
+   275	    """Day counts / totals for any date range.
+   276	
+   277	    Gap filling differs on purpose from the scoring engine: for an arbitrary date range,
+   278	    filling day by day keeps as much measured data as possible; the engine's whole-variable
+   279	    fallback is about consistency over a 30-year window. The output states which was used.
+   280	    """
+   281	    hub, metric = args.hub_id.value, args.metric
+   282	    start, end = args.start_date.isoformat(), args.end_date.isoformat()
+   283	    days = pd.date_range(start, end).strftime("%Y-%m-%d")
+   284	    base = {"hub_id": hub, "metric": metric, "start_date": start, "end_date": end, "days_in_period": len(days)}
+   285	
+   286	    if metric.startswith("warning_days_"):
+   287	        hazard = metric.removeprefix("warning_days_")
+   288	        wp = get_params()["warnings"]
+   289	        ugc = conn.execute("SELECT ugc, timezone FROM hub_ugc WHERE hub_id=?", (hub,)).fetchall()
+   290	        codes = [u[0] for u in ugc] + [f"POINT:{hub}"]
+   291	        w = pd.read_sql(f"SELECT phenomena, issue, expire FROM nws_warnings WHERE ugc IN ({','.join('?' * len(codes))})",
+   292	                        conn, params=codes)
+   293	        wd = m.warning_days(w, ugc[0][1], wp["phenomena"], (wp["first_year"], wp["last_year"]))[hazard]
+   294	        lo_ok, hi_ok = f"{wp['first_year']}-01-01", f"{wp['last_year']}-12-31"
+   295	        covered = [d for d in days if lo_ok <= d <= hi_ok]
+   296	        count = sum(d in wd for d in covered)
+   297	        return {**base, "count": count, "days_with_data": len(covered),
+   298	                "percent_of_days": _r(100 * count / len(covered)) if covered else None,
+   299	                "definition": f"days with an NWS warning of types {wp['phenomena'][hazard]} at the hub",
+   300	                "source": f"National Weather Service warnings ({wp['first_year']}-{wp['last_year']})",
+   301	                "caveat": None if len(covered) == len(days) else "part of the period is outside the warning archive window"}
+   302	
+   303	    st = conn.execute("SELECT station_id, station_name, distance_km, gust_measured FROM hub_stations WHERE hub_id=?",
+   304	                      (hub,)).fetchone()
+   305	    station = pd.read_sql("SELECT * FROM station_daily WHERE station_id=? AND date BETWEEN ? AND ?", conn,
+   306	                          params=(st[0], start, end)).set_index("date") if st else pd.DataFrame()
+   307	    om = pd.read_sql("SELECT * FROM daily_weather WHERE hub_id=? AND date BETWEEN ? AND ?", conn,
+   308	                     params=(hub, start, end)).set_index("date")
+   309	    st_info = {"station": st[1], "station_id": st[0], "distance_km": st[2]} if st else None
+   310	
+   311	    if metric in ("ice_day", "thunder_day"):
+   312	        if not st or not st[3]:
+   313	            return {**base, "count": None, "error": "This hub's station does not record weather events; "
+   314	                                                    "ice/thunder days are unavailable."}
+   315	        cols = ["wt_glaze", "wt_freezing_rain", "wt_ice_pellets"] if metric == "ice_day" else ["wt_thunder"]
+   316	        obs = station.reindex(days)
+   317	        has = obs["prcp_mm"].notna() | obs["tmax_c"].notna()       # station reported that day
+   318	        count = int((obs.loc[has, cols].fillna(0).sum(axis=1) > 0).sum())
+   319	        n = int(has.sum())
+   320	        return {**base, "count": count, "days_with_data": n, "percent_of_days": _r(100 * count / n) if n else None,
+   321	                "definition": "observed " + ("glaze, freezing rain or ice pellets" if metric == "ice_day" else "thunder"),
+   322	                "source": "Weather events observed at the airport station (NOAA)",
+   323	                **({"station": st_info} if st_info else {}),
+   324	                "caveat": "Flags are recorded inconsistently; a missing flag doesn't prove the event didn't happen."}
+   325	
+   326	    var = DAY_FLAGS[metric][0] if metric in DAY_FLAGS else TOTALS[metric]
+   327	    st_col, om_col = m.VARIABLES[var]
+   328	    st_s = station[st_col].reindex(days) if st_col in station else pd.Series(index=days, dtype=float)
+   329	    if var == "gust_kmh" and st and not st[3]:
+   330	        st_s = pd.Series(index=days, dtype=float)               # no measured gusts at this station
+   331	    om_s = om[om_col].reindex(days) if om_col in om else pd.Series(index=days, dtype=float)
+   332	    combined = st_s.combine_first(om_s)
+   333	    n = int(combined.notna().sum())
+   334	    sources = {"station_days": int(st_s.notna().sum()), "open_meteo_days": int((st_s.isna() & om_s.notna()).sum())}
+   335	    res = {**base, "days_with_data": n, "sources": sources, "method": GAP_FILL_METHOD,
+   336	           **({"station": st_info} if st_info else {})}
+   337	    if metric in TOTALS:
+   338	        res.update({"total": _r(combined.sum(), 1), "unit": "mm" if var == "precip_mm" else "cm"})
+   339	    else:
+   340	        count = int(combined.dropna().map(DAY_FLAGS[metric][1]).sum())
+   341	        res.update({"count": count, "percent_of_days": _r(100 * count / n) if n else None,
+   342	                    "definition": DAY_DEFINITIONS[metric]})
+   343	    res["source"] = ("Measured weather at the airport station (NOAA)" if sources["open_meteo_days"] == 0 else
+   344	                     "Measured weather at the airport station (NOAA), with a few missing days estimated from "
+   345	                     "modeled data (Open-Meteo)") if sources["station_days"] else \
+   346	        "Modeled weather data (Open-Meteo reanalysis); no station measurements for this period"
+   347	    if n < 0.8 * len(days):
+   348	        res["caveat"] = f"Data available for only {n} of {len(days)} days."
+   349	    return res
+   350	
+   351	
+   352	@_with_conn
+   353	def get_methodology(args: s.MethodologyInput, conn) -> dict:
+   354	    p = get_params()
+   355	    details, version = conn.execute("SELECT details_json, scoring_version FROM risk_scores ORDER BY id DESC LIMIT 1"
+   356	                                    ).fetchone()
+   357	    d = {**json.loads(details), "scoring_version": version}
+   358	    shares = {h: {"share": _r(d["hazards"][h]["severity_share"]["share"], 3),
+   359	                  "range_90pct": [_r(d["hazards"][h]["severity_share"]["lo"], 3),
+   360	                                  _r(d["hazards"][h]["severity_share"]["hi"], 3)],
+   361	                  "warning_days_pooled": d["hazards"][h]["severity_share"]["n"]} for h in HAZARDS}
+   362	    return {
+   363	        "kpis": KPI_DEFINITIONS,
+   364	        "severity_shares": shares,
+   365	        "warning_types_by_hazard": p["warnings"]["phenomena"],
+   366	        "fema_incident_types_by_hazard": p["declarations"]["incident_types"],
+   367	        "tiers": "High / Elevated / Low = top / middle / bottom third of the 47 hubs by disaster-level days.",
+   368	        "confidence": "Per hub, lowered by: station > 25 km away, no measured gusts/weather events, or modeled "
+   369	                      "data used for a variable.",
+   370	        "data_sources": [
+   371	            "NWS warnings, IEM VTEC archive 2006-2025 (zone/county products by hub zone; storm-based polygons only "
+   372	            "when the polygon contains the hub)",
+   373	            "FEMA disaster declarations (OpenFEMA), major disasters 1996-2025",
+   374	            "NOAA GHCN-Daily airport stations 1996-2025 (measured), Open-Meteo reanalysis fills gaps (2016+)",
+   375	            "NOAA HURDAT2 hurricane tracks 1950-2025; NOAA SPC tornado/hail/wind reports 1996-2025",
+   376	            "FEMA National Risk Index (county hazard profiles, used only to pick stand-in hubs)",
+   377	            "Census Gazetteer + population estimates (place lookup)",
+   378	        ],
+   379	        "assumptions_and_limitations": [
+   380	            "The 47-hub network and city-center coordinates are assumptions; a client would supply real sites.",
+   381	            "Regions are US Census Bureau regions.",
+   382	            "Every disaster-level day counts the same unless an analyst supplies day costs.",
+   383	            "NWS warnings are forecasts (some false alarms/misses) and their criteria changed over time.",
+   384	            "FEMA declarations are partly policy-driven; heat is essentially never declared, so heat has a severity "
+   385	            "share of 0 (no evidence of disaster-level heat), not 'heat never disrupts'.",
+   386	            "Severity shares are pooled across our 47 hubs.",
+   387	            "Disaster-level day ranges combine the warning-rate and severity-share ranges conservatively (wider than a "
+   388	            "joint interval); hurricane shares rest on few events.",
+   389	            "Weather statistics for a date range fill missing station days with Open-Meteo day by day; hub "
+   390	            "scoring evidence switches a whole variable to Open-Meteo when station coverage is below 80%.",
+   391	            "Past frequency does not fully predict the future (climate trends).",
+   392	        ],
+   393	        "params_version": p["params_version"], "scoring_version": d.get("scoring_version"),
+   394	    }
+   395	
+   396	
+   397	MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+   398	          "November", "December"]
+   399	HAZARD_LABELS = {"winter": "winter storms / ice", "flood": "flooding", "convective": "severe thunderstorms / wind",
+   400	                 "hurricane": "hurricanes / tropical storms", "heat": "extreme heat"}
+   401	
+   402	
+   403	@_with_conn
+   404	def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
+   405	    """Which hubs historically face the most disruption in a given calendar month, and why."""
+   406	    month = args.month or date.today().month
+   407	    q = ("SELECT m.*, h.name, h.state, h.region, h.county_fips FROM hub_monthly m JOIN hubs h ON h.id = m.hub_id "
+   408	         "WHERE m.month = ?" + (" AND h.region = ?" if args.region else ""))
+   409	    df = pd.read_sql(q, conn, params=(month, args.region) if args.region else (month,))
+   410	    totals = df.groupby("hub_id")["severe_days"].sum().round(6)
+   411	    rank = totals.rank(ascending=False, method="min").astype(int)
+   412	    order = sorted(totals.index, key=lambda h: (rank[h], h))[: (args.top_n or 5)]
+   413	    decl = pd.read_sql("SELECT county_fips, title, incident_type, begin_date FROM fema_declarations", conn)
+   414	    decl = decl[decl["begin_date"].str[5:7] == f"{month:02d}"].sort_values("begin_date", ascending=False)
+   415	
+   416	    hubs = []
+   417	    for hub in order:
+   418	        rows = df[df["hub_id"] == hub].set_index("hazard")
+   419	        top = rows["severe_days"].idxmax() if rows["severe_days"].max() > 0 else rows["mean_warning_days"].idxmax()
+   420	        t = rows.loc[top]
+   421	        other = [{"hazard": z, "p_at_least_one_warning_day": _r(rows.loc[z, "p_warning"], 2)}
+   422	                 for z in rows.index if z != top and rows.loc[z, "p_warning"] >= 0.3]
+   423	        past = decl[decl["county_fips"] == t["county_fips"]].head(3)
+   424	        item = {
+   425	            "rank": int(rank[hub]), "hub_id": hub, "name": t["name"], "state": t["state"], "region": t["region"],
+   426	            "expected_severe_days_this_month": _r(totals[hub], 3),
+   427	            "top_hazard": top, "top_hazard_label": HAZARD_LABELS[top],
+   428	            "p_at_least_one_warning_day": _r(t["p_warning"], 2),
+   429	            "p_range_90pct": [_r(t["p_lo"], 2), _r(t["p_hi"], 2)],
+   430	            "years_with_warning": int(t["years_with_warning"]), "years_observed": int(t["years"]),
+   431	            "avg_warning_days_this_month": _r(t["mean_warning_days"], 2),
+   432	            "other_likely_hazards": other,
+   433	            "past_fema_disasters_this_month": [{"title": r.title, "type": r.incident_type, "year": r.begin_date[:4]}
+   434	                                               for r in past.itertuples()],
+   435	        }
+   436	        if top == "hurricane" and pd.notna(t["longrecord_p"]):
+   437	            item["p_storm_within_150km_1950_2025"] = _r(t["longrecord_p"], 2)
+   438	        hubs.append(item)
+   439	
+   440	    summary = {}
+   441	    for z in HAZARDS:
+   442	        zr = df[df["hazard"] == z]
+   443	        likely = zr[zr["p_warning"] >= 0.5]
+   444	        best = zr.sort_values(["p_warning", "hub_id"], ascending=[False, True]).head(1)
+   445	        summary[z] = {"hubs_with_warning_in_most_years": int(len(likely)),
+   446	                      "most_frequent_hub": None if best.empty or best["p_warning"].iloc[0] == 0 else best["hub_id"].iloc[0],
+   447	                      "its_p": None if best.empty else _r(best["p_warning"].iloc[0], 2)}
+   448	    return {"month": month, "month_name": MONTHS[month - 1], "region": args.region, "hubs": hubs,
+   449	            "hazard_summary": summary,
+   450	            "definition": "p_at_least_one_warning_day = share of years 2006-2025 in which the hub had at least one "
+   451	                          "NWS warning day for the hazard in this month; expected_severe_days_this_month = average "
+   452	                          "warning days in this month x the hazard's FEMA severity share, summed over hazards.",
+   453	            "note": "Historical frequency (climatology), not a forecast.",
+   454	            "source": SOURCES}
+   455	
+   456	
+   457	def find_nearest_hubs(args: s.FindNearestHubsInput, conn=None) -> dict:
+   458	    return _find_nearest_hubs(args.location, conn)
