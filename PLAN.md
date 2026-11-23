@@ -1,4 +1,4 @@
-# Weather Risk Intelligence Agent — Implementation Plan
+# Weather Risk Intelligence Agent: Implementation Plan
 
 > Built with Claude Code. This plan is part of the "AI session" deliverable.
 
@@ -11,28 +11,28 @@
 | Rejected: C (LangGraph multi-agent) | Not used. Noted in DESIGN.md as "how this would scale" | One agent with good tools is enough for this scope. Extra agents add latency, cost, failure modes and demo risk |
 | Orchestration | Plain OpenAI Python SDK loop (no framework) | Transparent; JSON-schema enforcement is direct; easy to debug live |
 | Borrowed from C | MCP server, code-based answer validator ("critic as code"), browser voice, scheduled alerts | Cheap to add, valuable, and good to talk through in the interview |
-| LLM | **OpenAI `gpt-6.2-sol`** (switched from Claude Sonnet 5.5 because of Anthropic's prepay tiers; $10 of OpenAI credit bought) | Mid-tier price ($2 / $10 per 1M tokens, $0.10 cached input), strict function calling + structured outputs. **One model for development, evals and demo**: tuning on a cheaper model and demoing on another would mean demoing an untested configuration. Expected spend with automatic prompt caching is about $6–8 |
+| LLM | **OpenAI `gpt-6.2-sol`** (switched from Claude Sonnet 5.5 because of Anthropic's prepay tiers; $10 of OpenAI credit bought) | Mid-tier price ($2 / $10 per 1M tokens, $0.10 cached input), strict function calling + structured outputs. **One model for development, evals and demo**: tuning on a cheaper model and demoing on another would mean demoing an untested configuration. Expected spend with automatic prompt caching is about $6 to 8 |
 | Storage | SQLite (single file, committed snapshot) | About 90k rows; no server needed; ships with the container |
-| Deployment | Docker → Render (or Railway) public URL, with a local run as backup | URL is "preferred"; interviewers can try it themselves |
+| Deployment | Docker -> Render (or Railway) public URL, with a local run as backup | URL is "preferred"; interviewers can try it themselves |
 
 ## Priority tiers (cut line if time runs short)
 
-- **MUST:** Phases 0–8, 11, 12, 13 (core agent, API, UI, evals, deploy, docs, transcript)
+- **MUST:** Phases 0 to 8, 11, 12, 13 (core agent, API, UI, evals, deploy, docs, transcript)
 - **SHOULD:** Phase 9 (alerts, a listed bonus) and Phase 10 (MCP server)
 - **COULD:** voice in Phase 7, LLM-as-judge in Phase 8, NWS live alerts tool
 
-Cost-saving order: Phases 2–4 use no LLM calls at all. Build and test the deterministic core first.
+Cost-saving order: Phases 2 to 4 use no LLM calls at all. Build and test the deterministic core first.
 
 ---
 
-## Phase 0 — Accounts, keys, tools (≈45 min) — *you do this*
+## Phase 0: Accounts, keys, tools (about 45 min), *you do this*
 
 1. **Local tools:** Python 3.12+ (`python --version`), Git (`git --version`), a GitHub account, and VS Code (optional).
 2. **OpenAI API key**
    1. Go to https://platform.openai.com and sign up or log in.
-   2. Billing: buy credits ($10 bought; expected spend on `gpt-6.2-sol` with prompt caching is about $6–8).
-   3. Settings → Limits: set a **monthly budget / usage limit**. This protects you once the URL is public.
-   4. API keys → Create new secret key (name it `weather-risk-agent`) → copy it **once**.
+   2. Billing: buy credits ($10 bought; expected spend on `gpt-6.2-sol` with prompt caching is about $6 to 8).
+   3. Settings -> Limits: set a **monthly budget / usage limit**. This protects you once the URL is public.
+   4. API keys -> Create new secret key (name it `weather-risk-agent`) -> copy it **once**.
    5. Paste it **only** into the local `.env` file (created in Phase 1). Never paste it in chat or commit it.
 3. **GitHub:** create an empty repo, e.g. `weather-risk-agent` (public or private; public is easier to share).
 4. **Render:** sign up at https://render.com with GitHub. Nothing to configure yet.
@@ -43,72 +43,72 @@ Cost-saving order: Phases 2–4 use no LLM calls at all. Build and test the dete
 
 ---
 
-## Phase 1 — Repository skeleton & config (≈45 min)
+## Phase 1: Repository skeleton & config (about 45 min)
 
 **Target structure**
 ```
 weather-risk-agent/
-├── README.md                  # how to run locally / deployed, demo questions
-├── DESIGN.md                  # architecture, repo structure, storage, scoring, assumptions
-├── PLAN.md                    # this plan
-├── DECISIONS.md               # short log of design decisions + why
-├── requirements.txt
-├── .env.example               # OPENAI_API_KEY=, LLM_MODEL=, APP_ACCESS_CODE=, ADMIN_TOKEN=, ALERT_WEBHOOK_URL=
-├── .gitignore                 # .env, .venv, data/raw/, __pycache__, evals/results/*.json (keep latest)
-├── Dockerfile
-├── data/
-│   ├── hubs.yaml              # hub list: id, name, city, state, lat, lon, county_fips, region
-│   ├── raw/                   # downloaded API responses / NRI CSV (gitignored cache)
-│   └── risk.db                # SQLite snapshot (committed)
-├── app/
-│   ├── config.py              # pydantic-settings: env vars, paths, model name
-│   ├── db.py                  # SQLite connection + schema creation
-│   ├── ingest/
-│   │   ├── open_meteo.py      # daily history per hub
-│   │   ├── fema_nri.py        # county hazard scores
-│   │   ├── nws_alerts.py      # live active alerts (optional tool + alerts)
-│   │   └── build_db.py        # CLI: python -m app.ingest.build_db
-│   ├── scoring/
-│   │   ├── weights.yaml       # thresholds, hazard weights, tier cutoffs, version
-│   │   ├── metrics.py         # per-hub climate metrics from daily data
-│   │   └── engine.py          # normalization, sub-scores, composite, tiers, breakdown
-│   ├── tools/
-│   │   ├── schemas.py         # Pydantic input models for every tool (strict)
-│   │   └── registry.py        # tool functions + OpenAI function-tool definitions
-│   ├── agent/
-│   │   ├── llm_client.py      # the ONLY module that talks to OpenAI
-│   │   ├── prompts.py         # system prompt
-│   │   ├── answer_schema.py   # FinalAnswer Pydantic model (the LLM→code contract)
-│   │   ├── validator.py       # deterministic "critic": numbers must come from tool results
-│   │   ├── sessions.py        # conversation memory per session_id
-│   │   └── agent.py           # the tool-use loop
-│   ├── alerts/
-│   │   ├── monitor.py         # recompute → diff vs last scores → alert rows
-│   │   └── notifier.py        # POST to webhook
-│   ├── api/
-│   │   └── main.py            # FastAPI app, routes, static UI, scheduler start
-│   └── mcp_server.py          # MCP server exposing the same tools
-├── web/
-│   ├── index.html             # chat UI
-│   ├── app.js                 # fetch /api/chat, render answer cards, voice
-│   └── styles.css
-├── evals/
-│   ├── cases.yaml             # 15–20 eval cases
-│   ├── oracle.py              # ground truth computed directly from DB/engine
-│   ├── run_evals.py           # python -m evals.run_evals
-│   └── results/               # timestamped JSON reports
-├── tests/                     # pytest, no LLM calls
-│   ├── test_metrics.py
-│   ├── test_engine.py
-│   ├── test_tools.py
-│   └── test_validator.py
-└── docs/
-    └── ai-session/            # exported Claude Code transcript (mandatory deliverable)
+  README.md                  # how to run locally / deployed, demo questions
+  DESIGN.md                  # architecture, repo structure, storage, scoring, assumptions
+  PLAN.md                    # this plan
+  DECISIONS.md               # short log of design decisions + why
+  requirements.txt
+  .env.example               # OPENAI_API_KEY=, LLM_MODEL=, APP_ACCESS_CODE=, ADMIN_TOKEN=, ALERT_WEBHOOK_URL=
+  .gitignore                 # .env, .venv, data/raw/, __pycache__, evals/results/*.json (keep latest)
+  Dockerfile
+  data/
+    hubs.yaml              # hub list: id, name, city, state, lat, lon, county_fips, region
+    raw/                   # downloaded API responses / NRI CSV (gitignored cache)
+    risk.db                # SQLite snapshot (committed)
+  app/
+    config.py              # pydantic-settings: env vars, paths, model name
+    db.py                  # SQLite connection + schema creation
+    ingest/
+      open_meteo.py      # daily history per hub
+      fema_nri.py        # county hazard scores
+      nws_alerts.py      # live active alerts (optional tool + alerts)
+      build_db.py        # CLI: python -m app.ingest.build_db
+    scoring/
+      weights.yaml       # thresholds, hazard weights, tier cutoffs, version
+      metrics.py         # per-hub climate metrics from daily data
+      engine.py          # normalization, sub-scores, composite, tiers, breakdown
+    tools/
+      schemas.py         # Pydantic input models for every tool (strict)
+      registry.py        # tool functions + OpenAI function-tool definitions
+    agent/
+      llm_client.py      # the ONLY module that talks to OpenAI
+      prompts.py         # system prompt
+      answer_schema.py   # FinalAnswer Pydantic model (the LLM->code contract)
+      validator.py       # deterministic "critic": numbers must come from tool results
+      sessions.py        # conversation memory per session_id
+      agent.py           # the tool-use loop
+    alerts/
+      monitor.py         # recompute -> diff vs last scores -> alert rows
+      notifier.py        # POST to webhook
+    api/
+      main.py            # FastAPI app, routes, static UI, scheduler start
+    mcp_server.py          # MCP server exposing the same tools
+  web/
+    index.html             # chat UI
+    app.js                 # fetch /api/chat, render answer cards, voice
+    styles.css
+  evals/
+    cases.yaml             # 15 to 20 eval cases
+    oracle.py              # ground truth computed directly from DB/engine
+    run_evals.py           # python -m evals.run_evals
+    results/               # timestamped JSON reports
+  tests/                     # pytest, no LLM calls
+    test_metrics.py
+    test_engine.py
+    test_tools.py
+    test_validator.py
+  docs/
+      ai-session/            # exported Claude Code transcript (mandatory deliverable)
 ```
 
 **Steps**
 1. `git init`, add the GitHub remote, create the folders above.
-2. Virtual env: `python -m venv .venv` → `.venv\Scripts\Activate.ps1`.
+2. Virtual env: `python -m venv .venv` -> `.venv\Scripts\Activate.ps1`.
 3. `requirements.txt`: `openai`, `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `httpx`, `pyyaml`, `pandas`, `apscheduler`, `mcp`, `pytest`, `python-dotenv`.
 4. `app/config.py` reads `.env`: `OPENAI_API_KEY`, `LLM_MODEL=gpt-6.2-sol`, `LLM_REASONING_EFFORT=medium`, `APP_ACCESS_CODE`, `ADMIN_TOKEN`, `ALERT_WEBHOOK_URL`, `DB_PATH`.
 5. Copy `.env.example` to `.env` and paste the key in (you do this).
@@ -118,12 +118,12 @@ weather-risk-agent/
 
 ---
 
-## Phase 2 — Hub list & data ingestion (≈2.5 h, no LLM cost)
+## Phase 2: Hub list & data ingestion (about 2.5 h, no LLM cost)
 
 ### 2.1 Hub list (`data/hubs.yaml`): 45 hubs covering most of the US, an explicit assumption
 Region = US Census Bureau regions (documented definition of "Midwest"). Chosen to (a) cover the sample questions, (b) be real logistics markets, (c) span every hazard type, (d) cover the map densely so a nearby stand-in hub exists for most locations.
 - **Midwest (13):** Chicago, Minneapolis, Detroit, Indianapolis, Columbus, Kansas City, St. Louis, Omaha, Milwaukee, Cincinnati, Des Moines, Wichita, Fargo
-- **South (16):** Dallas, Houston, Miami, Atlanta, Memphis, Louisville, Charlotte, New Orleans, San Antonio, Oklahoma City, Nashville, Jacksonville, Orlando, Birmingham, Richmond, El Paso (Texas → South under Census regions)
+- **South (16):** Dallas, Houston, Miami, Atlanta, Memphis, Louisville, Charlotte, New Orleans, San Antonio, Oklahoma City, Nashville, Jacksonville, Orlando, Birmingham, Richmond, El Paso (Texas -> South under Census regions)
 - **West (12):** Denver, Phoenix, Los Angeles, Seattle, Salt Lake City, Oakland (SF Bay), Sacramento, Portland, Las Vegas, Albuquerque, Boise, Billings
 - **Northeast (6):** Newark (NYC metro), Boston, Philadelphia, Pittsburgh, Buffalo, Albany
 
@@ -136,7 +136,7 @@ Each entry has `id` (slug, e.g. `dallas`), display name, lat/lon (a distribution
 ### 2.2 SQLite schema (`app/db.py`)
 - `hubs(id PK, name, state, lat, lon, county_fips, region)`
 - `daily_weather(hub_id, date, tmax_c, tmin_c, precip_mm, snowfall_cm, wind_gust_kmh, weather_code, PK(hub_id,date))`
-- `nri_county(county_fips, hazard, risk_score, risk_rating)` for **all US counties** (needed for stand-in matching), where hazard ∈ winter_weather, ice_storm, cold_wave, hurricane, coastal_flood, riverine_flood, tornado, hail, strong_wind, heat_wave. Hubs join to it on `county_fips`
+- `nri_county(county_fips, hazard, risk_score, risk_rating)` for **all US counties** (needed for stand-in matching), where hazard is one of winter_weather, ice_storm, cold_wave, hurricane, coastal_flood, riverine_flood, tornado, hail, strong_wind, heat_wave. Hubs join to it on `county_fips`
 - `places(name, state, county_fips?, lat, lon)` and `counties(county_fips, name, state, lat, lon)` from the Census Gazetteer files, used to locate places that aren't hubs
 - `hub_metrics(hub_id, metric, value, period_start, period_end)`
 - `risk_scores(hub_id, computed_at, scoring_version, composite, winter, hurricane, flood, convective, heat, tier, details_json)`, which keeps history so the alert job can diff
@@ -147,15 +147,15 @@ Each entry has `id` (slug, e.g. `dallas`), display name, lat/lon (a distribution
 - Endpoint: `https://archive-api.open-meteo.com/v1/archive`
 - Params: `latitude, longitude, start_date=2016-01-01, end_date=2025-12-31, timezone=auto, daily=temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,wind_gusts_10m_max,weather_code`
 - One request per hub for all 10 years. Cache the raw JSON in `data/raw/`, add a polite delay, and retry with backoff.
-- Also fetch 2026-01-01 → (today − 5 days) for the "current year" refresh used by alerts.
-- Note in the docs: ERA5-based reanalysis grid (~9–25 km), not station data. Free for non-commercial use; production would use the commercial plan.
+- Also fetch 2026-01-01 -> (today - 5 days) for the "current year" refresh used by alerts.
+- Note in the docs: ERA5-based reanalysis grid (about 9 to 25 km), not station data. Free for non-commercial use; production would use the commercial plan.
 
 ### 2.4 FEMA National Risk Index (`ingest/fema_nri.py`)
 - **Source (as built):** FEMA's official NRI Counties feature service on ArcGIS Online (owner `FEMA_NationalRiskIndex`, version "December 2025", 3,232 counties), paged via the ArcGIS REST API. The `hazards.fema.gov` bulk download refused connections from our environment. Cached as `data/raw/nri_counties.csv`.
 - Hazard prefixes: `WNTW, ISTM, CWAV, HRCN, CFLD, IFLD` (Inland Flooding, which replaces the older Riverine Flooding), `TRND, HAIL, SWND, HWAV`.
-- **Decision: use annualized event frequency (`<HAZ>_AFREQ`), not the risk score.** The NRI hazard risk score scales with exposed property and population, so big urban counties score high on everything (Dallas County ≈ 99 for winter weather; Hennepin ≈ 99.6 for tornado). For a logistics hub, how often a hazard occurs is what matters. We store `afreq`, a national percentile of it (`freq_pctl`, 0 when the hazard never occurs), plus `risk_score` and the loss-rate percentile for reference.
-- Known caveat: percentiles flatten the low end (e.g. Phoenix's hurricane percentile is ~50 though its frequency is ~26× lower than Miami's). Phase 3 may scale hurricane by raw frequency instead.
-- Store every county (not just hub counties). NRI scores are national percentiles (0–100). Missing values (e.g. no coastal flood inland) are stored as 0 and the substitution is recorded.
+- **Decision: use annualized event frequency (`<HAZ>_AFREQ`), not the risk score.** The NRI hazard risk score scales with exposed property and population, so big urban counties score high on everything (Dallas County about 99 for winter weather; Hennepin about 99.6 for tornado). For a logistics hub, how often a hazard occurs is what matters. We store `afreq`, a national percentile of it (`freq_pctl`, 0 when the hazard never occurs), plus `risk_score` and the loss-rate percentile for reference.
+- Known caveat: percentiles flatten the low end (e.g. Phoenix's hurricane percentile is about 50 though its frequency is about 26x lower than Miami's). Phase 3 may scale hurricane by raw frequency instead.
+- Store every county (not just hub counties). NRI scores are national percentiles (0 to 100). Missing values (e.g. no coastal flood inland) are stored as 0 and the substitution is recorded.
 
 ### 2.4b Census Gazetteer (`ingest/census_gazetteer.py`)
 - Download the Census Gazetteer **places** file (every US city/town with lat/lon) and **counties** file (county centroids + FIPS) once; cache in `data/raw/`.
@@ -168,82 +168,82 @@ Data values are never altered; we only compute from them. Method parameters (rad
 3. No per-hub adjustments, ever.
 4. Cross-check with independent sources (e.g. SPC counts vs FEMA tornado frequency), not with expectations.
 5. Every parameter lives in `app/scoring/params.yaml` (versioned) with its rationale, and is exposed through `get_methodology`.
-Determinism = same data + same config → same output.
+Determinism = same data + same config -> same output.
 
 ### 2.6 Tier A: long-term event records around each hub
-- **HURDAT2** (NOAA NHC, Atlantic + NE Pacific): 6-hourly storm positions and winds. Window **1950–2025** (reliable from aircraft reconnaissance). Table `storm_tracks`.
-- **SPC severe reports** (NOAA Storm Prediction Center): tornado, hail, wind reports with coordinates and magnitude. Window **1996 → latest full year** (limits the long-term growth in reporting). Filters: tornado **EF1+**, hail **≥ 1 in**, wind **≥ 50 kt** (official severe thresholds). Table `severe_reports`.
-- **Per-hub rates** (`hub_event_rates`, one row per hub × hazard × radius): count within the radius, rate per year, 90% Poisson range, P(≥1 event in 10 years). Hurricanes: storms whose track passes within the radius (tropical-storm strength or more), plus a hurricane-strength-at-closest-approach count. Track segments are interpolated between 6-hour fixes.
+- **HURDAT2** (NOAA NHC, Atlantic + NE Pacific): 6-hourly storm positions and winds. Window **1950 to 2025** (reliable from aircraft reconnaissance). Table `storm_tracks`.
+- **SPC severe reports** (NOAA Storm Prediction Center): tornado, hail, wind reports with coordinates and magnitude. Window **1996 -> latest full year** (limits the long-term growth in reporting). Filters: tornado **EF1+**, hail **>= 1 in**, wind **>= 50 kt** (official severe thresholds). Table `severe_reports`.
+- **Per-hub rates** (`hub_event_rates`, one row per hub x hazard x radius): count within the radius, rate per year, 90% Poisson range, P(>=1 event in 10 years). Hurricanes: storms whose track passes within the radius (tropical-storm strength or more), plus a hurricane-strength-at-closest-approach count. Track segments are interpolated between 6-hour fixes.
 - **Radius test** (rule 1): tornado/hail/wind 25 / 50 / 100 km; hurricane 100 / 150 / 200 km. Report rank correlation of hub rankings between radii; use the middle radius if stable, and flag the parameter as sensitive if not.
 - Cross-check: SPC tornado rates vs FEMA tornado frequency for hub counties.
 
 ### 2.7 Tier B: measured station data (NOAA GHCN-Daily), Open-Meteo as backup
-- **Station rule:** nearest `USW` (major airport/first-order) station within 40 km whose 1996–2025 PRCP and TMAX records are ≥ 90% complete; otherwise the next nearest. Chosen from NOAA's station inventory, not by hand. Table `hub_stations` (station id, name, distance, completeness).
-- **Data:** daily PRCP, SNOW, TMAX, TMIN, WSF5 (peak 5-second gust), and observed weather types WT03 (thunder), WT04 (ice pellets), WT05 (hail), WT06 (glaze), WT17 (freezing rain), **1996–2025** (30-year window). Source: NCEI Access Data Service (no token). Table `station_daily`.
-- **Combination:** per day and variable, station value if present, else Open-Meteo (2016–2025 only); every value carries its source. Share of gap-filled values reported per hub.
-- Caveats: weather-type flags are recorded inconsistently (a missing flag doesn't prove nothing happened); the airport can be 10–25 km from the city center.
+- **Station rule:** nearest `USW` (major airport/first-order) station within 40 km whose 1996 to 2025 PRCP and TMAX records are >= 90% complete; otherwise the next nearest. Chosen from NOAA's station inventory, not by hand. Table `hub_stations` (station id, name, distance, completeness).
+- **Data:** daily PRCP, SNOW, TMAX, TMIN, WSF5 (peak 5-second gust), and observed weather types WT03 (thunder), WT04 (ice pellets), WT05 (hail), WT06 (glaze), WT17 (freezing rain), **1996 to 2025** (30-year window). Source: NCEI Access Data Service (no token). Table `station_daily`.
+- **Combination:** per day and variable, station value if present, else Open-Meteo (2016 to 2025 only); every value carries its source. Share of gap-filled values reported per hub.
+- Caveats: weather-type flags are recorded inconsistently (a missing flag doesn't prove nothing happened); the airport can be 10 to 25 km from the city center.
 
 ### 2.7b Disruption data (final; data frozen after this)
-- **NWS warnings** (Iowa Environmental Mesonet VTEC archive, by hub county + forecast zone from the NWS points API), warnings only, 2006–2025. Locally calibrated: a warning means conditions expected to be dangerous *for that place* (fixes fixed-threshold bias, e.g. Phoenix 106 days ≥ 38 °C vs ~3 Excessive Heat Warnings/yr). Phenomena → hazards: winter (WS, BZ, IS, LE), flood (FF, FA, CF; river-gauge FL excluded), convective/wind (SV, TO, HW, EW, DS), hurricane (HU, TR, SS), heat (EH, XH).
-- **FEMA disaster declarations** (OpenFEMA), major disasters (DR), weather incident types, 1996–2025.
-- **KPIs (no chosen weights):** routine disruption days/yr = warning days per hazard; severity share per hazard = pooled share of warning days inside a matching FEMA major-disaster incident period in the hub county; **severe disruption days/yr = Σ warning days × severity share = primary ranking** (resilience investment targets severe events). Threshold metrics, station data, HURDAT2 and SPC rates remain as explanatory evidence.
-- Caveats: warnings are forecasts (false alarms/misses); product renames (Excessive → Extreme Heat, 2024) mapped; declarations partly policy-driven (heat is almost never declared); incident periods are administrative.
+- **NWS warnings** (Iowa Environmental Mesonet VTEC archive, by hub county + forecast zone from the NWS points API), warnings only, 2006 to 2025. Locally calibrated: a warning means conditions expected to be dangerous *for that place* (fixes fixed-threshold bias, e.g. Phoenix 106 days >= 38  C vs about 3 Excessive Heat Warnings/yr). Phenomena -> hazards: winter (WS, BZ, IS, LE), flood (FF, FA, CF; river-gauge FL excluded), convective/wind (SV, TO, HW, EW, DS), hurricane (HU, TR, SS), heat (EH, XH).
+- **FEMA disaster declarations** (OpenFEMA), major disasters (DR), weather incident types, 1996 to 2025.
+- **KPIs (no chosen weights):** routine disruption days/yr = warning days per hazard; severity share per hazard = pooled share of warning days inside a matching FEMA major-disaster incident period in the hub county; **severe disruption days/yr = sum over hazards of warning days x severity share = primary ranking** (resilience investment targets severe events). Threshold metrics, station data, HURDAT2 and SPC rates remain as explanatory evidence.
+- Caveats: warnings are forecasts (false alarms/misses); product renames (Excessive -> Extreme Heat, 2024) mapped; declarations partly policy-driven (heat is almost never declared); incident periods are administrative.
 
 ### 2.8 `build_db.py` CLI
 `python -m app.ingest.build_db [--refresh]` creates the schema, loads hubs, ingests Open-Meteo, NRI, Census, HURDAT2, SPC and GHCN, computes hub event rates, then (from Phase 3) calls the scoring engine and writes `risk_scores`.
 
-**Done when:** `risk.db` holds about 45 × 3,650 daily rows, NRI rows for every county (and every hub's county), the places and counties tables, and a quick SQL query of Denver's 2025 snow days returns a sensible number.
+**Done when:** `risk.db` holds about 45 x 3,650 daily rows, NRI rows for every county (and every hub's county), the places and counties tables, and a quick SQL query of Denver's 2025 snow days returns a sensible number.
 
 ---
 
-## Phase 3 — Metrics & deterministic scoring engine (≈2.5 h, no LLM cost)
+## Phase 3: Metrics & deterministic scoring engine (about 2.5 h, no LLM cost)
 
 ### 3.1 Thresholds (`scoring/weights.yaml`, versioned, e.g. `scoring_version: 1.0`)
 | Metric | Definition |
 |---|---|
-| `snow_day` | snowfall ≥ 1 cm (a trace day is ≥ 0.1 cm; both are reported for the Denver-style question) |
-| `heavy_snow_day` | snowfall ≥ 10 cm |
-| `ice_day` | **Changed:** the Open-Meteo daily archive never emits freezing codes (56/57/66/67) or thunderstorm codes (95–99), checked over all data. Proxy instead: precip ≥ 2 mm, tmin < 0 °C, tmax 0–3 °C, and a liquid part (precip − 0.7 × snowfall_cm) ≥ 1 mm. Crude, so the ice signal leans on NRI ice-storm frequency |
-| `extreme_cold_day` | tmin ≤ −15 °C |
-| `heavy_rain_day` | precip ≥ 50 mm |
+| `snow_day` | snowfall >= 1 cm (a trace day is >= 0.1 cm; both are reported for the Denver-style question) |
+| `heavy_snow_day` | snowfall >= 10 cm |
+| `ice_day` | **Changed:** the Open-Meteo daily archive never emits freezing codes (56/57/66/67) or thunderstorm codes (95 to 99), checked over all data. Proxy instead: precip >= 2 mm, tmin < 0  C, tmax 0 to 3  C, and a liquid part (precip - 0.7 x snowfall_cm) >= 1 mm. Crude, so the ice signal leans on NRI ice-storm frequency |
+| `extreme_cold_day` | tmin <= -15  C |
+| `heavy_rain_day` | precip >= 50 mm |
 | `max_3day_precip` | max rolling 3-day precip sum per year |
-| `damaging_wind_day` | gust ≥ 80 km/h |
-| `extreme_heat_day` | tmax ≥ 38 °C (100 °F) |
-| `disruption_day` | any of: snow ≥ 5 cm, ice_day, gust ≥ 80 km/h, precip ≥ 50 mm, tmax ≥ 40 °C |
+| `damaging_wind_day` | gust >= 80 km/h |
+| `extreme_heat_day` | tmax >= 38  C (100 F) |
+| `disruption_day` | any of: snow >= 5 cm, ice_day, gust >= 80 km/h, precip >= 50 mm, tmax >= 40  C |
 
 ### 3.2 Metrics (`scoring/metrics.py`)
-- Annual averages over 2016–2025 per hub, plus per-year values (so "last year" questions work).
+- Annual averages over 2016 to 2025 per hub, plus per-year values (so "last year" questions work).
 - Generic function `day_fraction(hub, metric, start, end)` returns count, total days and percentage. This powers "% of days with snowfall".
 
-### 3.3 Sub-scores (0–100) (`scoring/engine.py`)
-Each hazard family = `w_nri × NRI component + w_climate × climate component`
+### 3.3 Sub-scores (0 to 100) (`scoring/engine.py`)
+Each hazard family = `w_nri x NRI component + w_climate x climate component`
 - The NRI component is the mean of the relevant NRI hazard scores (already national percentiles).
 - The climate component is the percentile rank of the relevant metrics **among our hubs** (relative), averaged.
 
 | Family | NRI inputs | Climate inputs | w_nri / w_climate |
 |---|---|---|---|
 | Winter | winter_weather, ice_storm, cold_wave | snow_days, heavy_snow_days, ice_days, extreme_cold_days | 0.5 / 0.5 |
-| Hurricane | coastal_flood | **HURDAT2 storm rate within radius (1950–2025)** + damaging_wind_days | to set in Phase 3 (rule 1) |
+| Hurricane | coastal_flood | **HURDAT2 storm rate within radius (1950 to 2025)** + damaging_wind_days | to set in Phase 3 (rule 1) |
 | Flood | inland_flood, coastal_flood | heavy_rain_days, max_3day_precip | 0.5 / 0.5 |
-| Convective | — (FEMA kept as cross-check) | **SPC tornado / hail / wind rates within radius (1996+)** + thunder days, damaging_wind_days | to set in Phase 3 (rule 1) |
+| Convective |, (FEMA kept as cross-check) | **SPC tornado / hail / wind rates within radius (1996+)** + thunder days, damaging_wind_days | to set in Phase 3 (rule 1) |
 | Heat | heat_wave | extreme_heat_days | 0.5 / 0.5 |
 
-**Updated after Tiers A/B:** climate metrics come from station data (1996–2025, measured snow; observed ice and thunder) with Open-Meteo filling gaps. Rare-event hazards use long-record rates instead of FEMA percentiles. Exact formulas and normalization are fixed in Phase 3 under the parameter rules (2.5).
+**Updated after Tiers A/B:** climate metrics come from station data (1996 to 2025, measured snow; observed ice and thunder) with Open-Meteo filling gaps. Rare-event hazards use long-record rates instead of FEMA percentiles. Exact formulas and normalization are fixed in Phase 3 under the parameter rules (2.5).
 
 ### 3.4 Composite = Weather Disruption Risk Index (WDRI)
 - Weights (an assumption, editable): winter 0.25, flood 0.20, hurricane 0.20, convective 0.20, heat 0.15.
-- Tiers: High ≥ 60, Elevated 40–60, Low < 40.
+- Tiers: High >= 60, Elevated 40 to 60, Low < 40.
 - Companion KPI: **expected disruption days per year** (from `disruption_day`). It's business-friendly ("Dallas loses about N days/yr to weather").
 - `breakdown(hub)` returns sub-scores, each one's weighted contribution, the top drivers (sorted), the raw metrics behind them and the NRI inputs. This powers the "why is Dallas high?" question.
 
 ### 3.5 Unit tests (`tests/test_metrics.py`, `tests/test_engine.py`)
-Synthetic data checks: thresholds count correctly; weights sum to 1; scores stay in 0–100; ranking is deterministic; the breakdown's contributions sum to the composite.
+Synthetic data checks: thresholds count correctly; weights sum to 1; scores stay in 0 to 100; ranking is deterministic; the breakdown's contributions sum to the composite.
 
 **Done when:** `pytest` passes and `python -m app.scoring.engine --print` shows a ranked table that passes a sanity check (e.g. Minneapolis is high on winter, Miami/Houston/New Orleans are high on hurricane). **Look at the real results.** If Dallas isn't actually "high", the agent must say so (and that becomes an eval case).
 
 ---
 
-## Phase 4 — Tools layer (≈1.5 h, no LLM cost)
+## Phase 4: Tools layer (about 1.5 h, no LLM cost)
 
 Every tool is a plain Python function with a **Pydantic input model**. The OpenAI function-tool definitions are generated from these models with `strict: true` and `additionalProperties: false` (OpenAI strict mode also requires every property to be listed in `required`; optional fields become nullable). `hub_id` and `region` are **enums**, so the model cannot invent a hub.
 
@@ -254,12 +254,12 @@ Every tool is a plain Python function with a **Pydantic input model**. The OpenA
 | `list_hubs` | `region?` | hubs with region and state |
 | `rank_hubs` | `measure` (severe / routine disruption days), `hazard` (all or one), `region?`, `top_n?`, `day_costs?` (analyst cost per day by hazard) | ordered list: days/yr, network tier, confidence |
 | `compare_hubs` | `hub_ids[2..6]`, `hazards?` | per hazard: severe + warning days (with ranges), severity share, evidence (storms, snow, rain, reports); most-exposed hub per hazard |
-| `get_hub_risk_breakdown` | `hub_id` | rank, tier, hazard contributions (warning days × severity share), evidence, recent FEMA disasters in the county, station, confidence |
+| `get_hub_risk_breakdown` | `hub_id` | rank, tier, hazard contributions (warning days x severity share), evidence, recent FEMA disasters in the county, station, confidence |
 | `get_weather_stat` | `hub_id`, `metric` (enum: snow/ice/rain/heat/cold/gust/thunder days, totals, NWS warning days by hazard), `start_date`, `end_date` | count, days with data, %, definition, station vs modeled day counts, source, caveats |
-| `get_methodology` | — | KPI definitions, severity shares with ranges, warning/incident type mappings, data sources, assumptions and limitations |
-| `find_nearest_hubs` | `location` (free text, e.g. "Tampa, FL") | the place found (or candidates if ambiguous), the 3 nearest hubs with distance (km), **hazard-profile similarity** (0–100), the biggest hazard differences, a recommended stand-in hub, and a far-away caveat flag (> 250 km) |
+| `get_methodology` |, | KPI definitions, severity shares with ranges, warning/incident type mappings, data sources, assumptions and limitations |
+| `find_nearest_hubs` | `location` (free text, e.g. "Tampa, FL") | the place found (or candidates if ambiguous), the 3 nearest hubs with distance (km), **hazard-profile similarity** (0 to 100), the biggest hazard differences, a recommended stand-in hub, and a far-away caveat flag (> 250 km) |
 
-**Stand-in matching (deterministic):** place → county (nearest centroid) → that county's 10 NRI hazard scores → compare with each candidate hub's scores (similarity 0–100 from the distance between the two 10-score vectors) → recommended = best of `0.8 × similarity + 0.2 × proximity`. Lookup + haversine over 45 hubs takes milliseconds. The LLM only explains the result and asks the user before analyzing the stand-in.
+**Stand-in matching (deterministic):** place -> county (nearest centroid) -> that county's 10 NRI hazard scores -> compare with each candidate hub's scores (similarity 0 to 100 from the distance between the two 10-score vectors) -> recommended = best of `0.8 x similarity + 0.2 x proximity`. Lookup + haversine over 45 hubs takes milliseconds. The LLM only explains the result and asks the user before analyzing the stand-in.
 | `get_active_alerts` *(COULD)* | `hub_id` | live NWS alerts (`api.weather.gov/alerts/active?point=lat,lon`, generic User-Agent) |
 
 - Each tool result includes `source`, `data_window` and `scoring_version`, so answers can cite them.
@@ -270,7 +270,7 @@ Every tool is a plain Python function with a **Pydantic input model**. The OpenA
 
 ---
 
-## Phase 5 — Agent core (≈3 h, first LLM spend)
+## Phase 5: Agent core (about 3 h, first LLM spend)
 
 ### 5.1 `llm_client.py` (the only module that imports `openai`)
 - Uses the OpenAI **Responses API**: `client.responses.create(model=settings.LLM_MODEL, instructions=system_prompt, input=history, tools=[function tools, strict], reasoning={"effort": settings.LLM_REASONING_EFFORT}, text={"format": {"type": "json_schema", "name": "final_answer", "schema": FinalAnswer schema, "strict": True}})`. **Verify the exact parameter shapes against the installed `openai` SDK (3.57.0) docs** before writing the loop.
@@ -281,7 +281,7 @@ Every tool is a plain Python function with a **Pydantic input model**. The OpenA
 - `tool_choice="auto"` plus prompt instructions. The final answer is enforced through the `json_schema` text format. **Verify early** that structured output composes with the tool loop on `gpt-6.2-sol`. Fallback if it doesn't: a strict `submit_answer` function tool whose parameters *are* the FinalAnswer schema.
 - Provider isolation: the rest of the code only sees neutral types (`ToolCall`, `LLMResponse`), so swapping providers again means changing this one file.
 
-### 5.2 FinalAnswer schema (`answer_schema.py`), the LLM → code contract
+### 5.2 FinalAnswer schema (`answer_schema.py`), the LLM -> code contract
 ```
 FinalAnswer:
   question_type: ranking | comparison | statistic | explanation | methodology | clarification | out_of_scope
@@ -307,7 +307,7 @@ run_turn(session_id, user_message):
       resp = llm.call(history)
       append resp.content (full blocks) to history
       if resp has function_call items:
-          run ALL function calls (parallel ok) → append one function_call_output per call_id
+          run ALL function calls (parallel ok) -> append one function_call_output per call_id
           continue
       if resp is a final message:
           answer = FinalAnswer.parse(resp)
@@ -323,21 +323,21 @@ run_turn(session_id, user_message):
 3. Every `hub_id` exists.
 4. Ranking answers must keep the engine's ordering.
 5. On failure: one retry with the specific problems; otherwise return the answer with `validation_warnings`.
-Tests: `tests/test_validator.py` (fabricated number → caught; rounded number → accepted).
+Tests: `tests/test_validator.py` (fabricated number -> caught; rounded number -> accepted).
 
 ### 5.6 Sessions (`sessions.py`)
-In-memory dict `session_id → messages` with a TTL. Cap the history by trimming old tool_result payloads beyond N turns. Optionally persist to SQLite. Follow-ups such as "what about Chicago?" work because the model sees the history.
+In-memory dict `session_id -> messages` with a TTL. Cap the history by trimming old tool_result payloads beyond N turns. Optionally persist to SQLite. Follow-ups such as "what about Chicago?" work because the model sees the history.
 
 **Done when:** a CLI `python -m app.agent.agent "Which Midwest hubs are most exposed to winter disruption?"` returns valid FinalAnswer JSON that passes the validator, and all 4 sample questions plus a follow-up work.
 
 ---
 
-## Phase 6 — API (≈1 h)
+## Phase 6: API (about 1 h)
 
 FastAPI (`app/api/main.py`):
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/chat` | `{session_id?, message}` → `{session_id, answer: FinalAnswer, trace, usage, latency_ms}` |
+| POST | `/api/chat` | `{session_id?, message}` -> `{session_id, answer: FinalAnswer, trace, usage, latency_ms}` |
 | GET | `/api/hubs` | hub list |
 | GET | `/api/scores` | current scores table (no LLM) |
 | GET | `/api/hubs/{id}/breakdown` | deterministic breakdown (no LLM) |
@@ -355,7 +355,7 @@ FastAPI (`app/api/main.py`):
 
 ---
 
-## Phase 7 — Chat UI (+ voice) (≈1.5 h)
+## Phase 7: Chat UI (+ voice) (about 1.5 h)
 
 Plain HTML/JS, no build step (`web/`):
 - Access-code prompt (stored in `localStorage`) and a chat thread with `session_id` kept across messages.
@@ -368,27 +368,27 @@ Plain HTML/JS, no build step (`web/`):
 
 ---
 
-## Phase 8 — Evaluation set & runner (≈2 h)
+## Phase 8: Evaluation set & runner (about 2 h)
 
-### 8.1 `evals/cases.yaml` (15–20 cases)
+### 8.1 `evals/cases.yaml` (15 to 20 cases)
 | Category | Example | Checks |
 |---|---|---|
-| Ranking | Midwest winter exposure | top-3 hub set ⊆ oracle top-4; ordering consistent; region filter respected |
+| Ranking | Midwest winter exposure | top-3 hub set is within the oracle top-4; ordering consistent; region filter respected |
 | Comparison | Miami vs Houston, hurricane & flood | both hubs present; figures match oracle; correct "higher" direction |
-| Statistic | % of 2025 days with snowfall in Denver | value within ±0.5 pp of oracle; threshold stated |
+| Statistic | % of 2025 days with snowfall in Denver | value within +/-0.5 pp of oracle; threshold stated |
 | Explanation | Why is Dallas high? | top drivers match engine breakdown top-2; or correctly disputes the premise |
-| Follow-up (multi-turn) | "…and what about Chicago?" | resolves context; correct hub |
+| Follow-up (multi-turn) | "and what about Chicago?" | resolves context; correct hub |
 | Methodology | "How do you score hubs?" | mentions weights + sources |
 | False premise | "Why is Seattle the riskiest hub?" | does not agree; cites actual rank |
 | Out of scope | "Weather in Paris tomorrow?" | `question_type=out_of_scope`; no fabricated figures |
 | Non-hub location | "Risk for a hub in Tampa?" | says no data; recommends a stand-in (expected: a Florida hub); asks before analyzing; no figures for Tampa itself |
 | Distant location | "What about Spokane?" | stronger caveat (stand-in > 250 km) |
 | Ambiguous place | "What about Springfield?" | asks which state |
-| Stand-in follow-up (multi-turn) | Tampa → "yes" | analyzes the recommended hub |
+| Stand-in follow-up (multi-turn) | Tampa -> "yes" | analyzes the recommended hub |
 
 ### 8.2 Checks (deterministic, from `evals/oracle.py`, which calls the engine/DB directly)
 `schema_valid`, `validator_passed`, `expected_tools_called`, `figures_match_oracle`, `ranking_matches`, `must_mention` / `must_not_mention`, `question_type`.
-*COULD:* an LLM-as-judge (cheap model, e.g. `gpt-6-luna`) scoring explanation clarity 1–5 with a rubric.
+*COULD:* an LLM-as-judge (cheap model, e.g. `gpt-6-luna`) scoring explanation clarity 1 to 5 with a rubric.
 
 ### 8.3 Runner
 `python -m evals.run_evals [--case ID] [--category X] [--repeat N]` prints a pass/fail table plus per-category pass rate, average latency, tokens and estimated cost, and writes `evals/results/<timestamp>.json`.
@@ -398,9 +398,9 @@ Run it, fix the failures (prompt or tool descriptions), and re-run. Keep the fin
 
 ---
 
-## Phase 9 — Score-change alerts (bonus, SHOULD) (≈1.5 h)
+## Phase 9: Score-change alerts (bonus, SHOULD) (about 1.5 h)
 
-1. `alerts/monitor.py`: refresh recent Open-Meteo days (+ NWS active alerts if built) → recompute scores → compare with the last stored `risk_scores` row per hub → create an alert when |Δcomposite| ≥ 3 points **or** the tier changes (thresholds in `weights.yaml`).
+1. `alerts/monitor.py`: refresh recent Open-Meteo days (+ NWS active alerts if built) -> recompute scores -> compare with the last stored `risk_scores` row per hub -> create an alert when the composite change >= 3 points **or** the tier changes (thresholds in `weights.yaml`).
 2. `alerts/notifier.py`: POST JSON (`hub, old, new, delta, tier change, top changed driver`) to `ALERT_WEBHOOK_URL` (webhook.site or Slack), and mark the alert delivered.
 3. Scheduling: APScheduler daily job started in FastAPI's lifespan, plus `POST /api/admin/recompute` for on-demand and external-cron triggers.
 4. Demo honesty: climate scores move slowly, so add `?simulate_delta=hub:+8` to the admin endpoint to demonstrate the pipeline, **clearly labeled as a simulation**. NWS active alerts give genuine short-term changes.
@@ -410,7 +410,7 @@ Run it, fix the failures (prompt or tool descriptions), and re-run. Keep the fin
 
 ---
 
-## Phase 10 — MCP server (SHOULD) (≈1 h)
+## Phase 10: MCP server (SHOULD) (about 1 h)
 
 1. `app/mcp_server.py` uses the official `mcp` Python SDK (`FastMCP`) and registers the **same** tool functions from `app/tools/registry.py`, with no duplicate logic. Optionally it also exposes `ask_agent(question)`, which calls the full agent.
 2. Runs over stdio: `python -m app.mcp_server`.
@@ -421,12 +421,12 @@ Run it, fix the failures (prompt or tool descriptions), and re-run. Keep the fin
 
 ---
 
-## Phase 11 — Deploy (≈1 h) — *partly you (clicks in Render)*
+## Phase 11: Deploy (about 1 h), *partly you (clicks in Render)*
 
-1. `Dockerfile`: `python:3.12-slim` → install requirements → copy `app/`, `web/`, `data/risk.db`, `data/hubs.yaml` → `CMD uvicorn app.api.main:app --host 0.0.0.0 --port $PORT`.
+1. `Dockerfile`: `python:3.12-slim` -> install requirements -> copy `app/`, `web/`, `data/risk.db`, `data/hubs.yaml` -> `CMD uvicorn app.api.main:app --host 0.0.0.0 --port $PORT`.
 2. Test locally: `docker build -t wra .` and `docker run -p 8000:8000 --env-file .env wra`.
 3. Push to GitHub. **Check that `.env` is not committed.**
-4. Render → New Web Service → connect the repo → Docker runtime → set env vars: `OPENAI_API_KEY`, `LLM_MODEL=gpt-6.2-sol`, `APP_ACCESS_CODE`, `ADMIN_TOKEN`, `ALERT_WEBHOOK_URL`.
+4. Render -> New Web Service -> connect the repo -> Docker runtime -> set env vars: `OPENAI_API_KEY`, `LLM_MODEL=gpt-6.2-sol`, `APP_ACCESS_CODE`, `ADMIN_TOKEN`, `ALERT_WEBHOOK_URL`.
 5. Smoke-test the URL: `/health`, the UI and the four sample questions.
 6. Known limits (documented): the free tier sleeps, so open the URL a few minutes before the interview; the filesystem is ephemeral, so the committed DB snapshot is the source and is rebuilt by `build_db` if needed; the scheduler only runs while the app is awake, so production would use an external cron hitting `/api/admin/recompute`.
 
@@ -434,35 +434,35 @@ Run it, fix the failures (prompt or tool descriptions), and re-run. Keep the fin
 
 ---
 
-## Phase 12 — Documentation (≈1.5 h)
+## Phase 12: Documentation (about 1.5 h)
 
 **README.md**: what it is (2 lines); live URL + access-code note; quickstart (venv, `.env`, `build_db`, `uvicorn`, open browser); run tests; run evals (+ latest pass rate); MCP usage; sample questions; known limitations.
 
-**DESIGN.md** (short, 2–4 pages):
-1. **System architecture**: a Mermaid diagram (Browser UI → FastAPI → Agent loop ⇄ OpenAI API; Agent → Tools → Scoring engine → SQLite; Ingest → Open-Meteo / FEMA NRI / NWS → SQLite; Scheduler → Monitor → Webhook; MCP server → Tools), plus the lifecycle of one request.
+**DESIGN.md** (short, 2 to 4 pages):
+1. **System architecture**: a Mermaid diagram (Browser UI -> FastAPI -> Agent loop <-> OpenAI API; Agent -> Tools -> Scoring engine -> SQLite; Ingest -> Open-Meteo / FEMA NRI / NWS -> SQLite; Scheduler -> Monitor -> Webhook; MCP server -> Tools), plus the lifecycle of one request.
 2. **Repository structure**: the tree above with a one-liner per module.
 3. **Data storage choice**: SQLite and why (size, zero-ops, ships in the container, SQL for analysts); the schema; when to move to Postgres (multi-writer, multi-tenant, history at scale).
 4. **Scoring methodology (the KPI)**: thresholds, sub-scores, weights, tiers, disruption days; why there's a hybrid of NRI and observed climate.
 5. **LLM contract**: tool schemas (strict), the FinalAnswer schema, the validator, retry policy, prompt caching.
 6. **Evaluation**: approach, categories, latest results.
-7. **Assumptions, uncertainty, scope**: invented hub list and coordinates; Census regions; 2016–2025 window; reanalysis grid ≠ station data; NRI is county-level and includes exposure and social factors; scores are *relative* within the network; the hurricane signal relies on NRI; no hub business value (throughput/revenue) is used, though in reality priority = hazard × business value (a natural next step); weights are judgment calls.
+7. **Assumptions, uncertainty, scope**: invented hub list and coordinates; Census regions; 2016 to 2025 window; reanalysis grid is not station data; NRI is county-level and includes exposure and social factors; scores are *relative* within the network; the hurricane signal relies on NRI; no hub business value (throughput/revenue) is used, though in reality priority = hazard x business value (a natural next step); weights are judgment calls.
 8. **What I'd do next**: business-value weighting, station data (NOAA GHCN), Storm Events history, Postgres, multi-agent/LangGraph only if workflows grow, auth/SSO, observability.
 
 **DECISIONS.md**: the decision log from the top of this plan, with one line each on the alternatives considered.
 
 ---
 
-## Phase 13 — Final QA, demo prep, submission (≈1 h)
+## Phase 13: Final QA, demo prep, submission (about 1 h)
 
 1. Fresh-clone test: follow the README from zero in a new folder and confirm it works.
 2. `pytest` all green; final `run_evals`, committed.
-3. Rehearse a demo script (about 5 min): the leaderboard → Midwest winter question → "what about Chicago?" follow-up → Miami vs Houston → Denver snow % → "Why is Dallas high?" → "How do you score?" → the "How I got this" panel → trigger a simulated alert → MCP in Claude Desktop → voice question.
+3. Rehearse a demo script (about 5 min): the leaderboard -> Midwest winter question -> "what about Chicago?" follow-up -> Miami vs Houston -> Denver snow % -> "Why is Dallas high?" -> "How do you score?" -> the "How I got this" panel -> trigger a simulated alert -> MCP in Claude Desktop -> voice question.
 4. **Export the full Claude Code session** (this conversation, including the planning) into `docs/ai-session/` (transcript export from the app; the raw JSONL is also under `~/.claude/projects/...`). **Mandatory deliverable.**
 5. Final commit and push. Submit: the GitHub link, the live URL + access code, and a note pointing to DESIGN.md, the eval results and the AI session.
 
 ---
 
-## Time budget (≈18 h total)
+## Time budget (about 18 h total)
 
 | Phase | Est. |
 |---|---|
