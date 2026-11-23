@@ -98,6 +98,23 @@ def test_data_endpoints(make_client):
         assert h["status"] == "ok" and h["hubs_scored"] == 47 and "OPENAI" not in str(h)
 
 
+def test_ui_and_assets_are_served(make_client):
+    with make_client() as c:
+        page = c.get("/")
+        assert page.status_code == 200 and "Weather Risk Agent" in page.text
+        for asset in ("/app.js", "/styles.css", "/vendor/marked.min.js", "/vendor/purify.min.js",
+                      "/fonts/inter-latin-wght-normal.woff2"):
+            assert c.get(asset).status_code == 200, asset
+
+
+def test_outlook_endpoint(make_client):
+    with make_client() as c:
+        o = c.get("/api/outlook", params={"month": 9, "top_n": 3}, headers=CODE).json()
+        assert o["month_name"] == "September" and len(o["hubs"]) == 3
+        assert all(d["title"] for h in o["hubs"] for d in h["past_fema_disasters_this_month"])
+        assert c.get("/api/outlook", params={"month": 0}, headers=CODE).status_code == 422
+
+
 def test_guards_units():
     rl = RateLimiter(2)
     assert [rl.allow("ip", 0), rl.allow("ip", 1), rl.allow("ip", 2), rl.allow("ip", 61)] == [True, True, False, True]

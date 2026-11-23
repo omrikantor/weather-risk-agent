@@ -19,3 +19,4 @@ evals/results/*.json
 Thumbs.db
 .vscode/
 .idea/
+.claude/

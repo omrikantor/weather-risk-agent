@@ -2,7 +2,7 @@
 
 An AI agent that helps logistics analysts decide which US distribution hubs are most exposed to weather disruption. Rankings and scores come from deterministic Python code; the LLM (OpenAI `gpt-6.2-sol`) chooses which tools to call and explains the results, and code verifies that every number in an answer came from a tool.
 
-> Work in progress. See [PLAN.md](PLAN.md) for the implementation plan and decision log.
+> Open http://127.0.0.1:8000 after starting the API (below) for the chat UI, seasonal outlook and leaderboard. See [PLAN.md](PLAN.md) for the plan and decision log.
 
 ## Quickstart (local)
 
