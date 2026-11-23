@@ -31,7 +31,9 @@ def summarize(conn) -> None:
           f"{q('SELECT MIN(date) FROM daily_weather')} .. {q('SELECT MAX(date) FROM daily_weather')}")
     print(f"  nri_county:      {q('SELECT COUNT(*) FROM nri_county')} rows "
           f"({q('SELECT COUNT(DISTINCT county_fips) FROM nri_county')} counties)")
-    print(f"  counties/places: {q('SELECT COUNT(*) FROM counties')} / {q('SELECT COUNT(*) FROM places')}")
+    print(f"  places:          {q('SELECT COUNT(*) FROM places')}")
+    print(f"  nws_warnings:    {q('SELECT COUNT(*) FROM nws_warnings')}, "
+          f"fema_declarations {q('SELECT COUNT(*) FROM fema_declarations')}")
     print(f"  storm_tracks:    {q('SELECT COUNT(*) FROM storm_tracks')} fixes "
           f"({q('SELECT COUNT(DISTINCT storm_id) FROM storm_tracks')} storms)")
     print(f"  severe_reports:  {q('SELECT COUNT(*) FROM severe_reports')}")

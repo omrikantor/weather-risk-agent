@@ -4,12 +4,10 @@ Source: FEMA's official NRI Counties feature service on ArcGIS Online (owner
 FEMA_NationalRiskIndex). The hazards.fema.gov bulk-download site refused connections
 from our environment, so we page through the same table via the ArcGIS REST API.
 
-Why frequency, not "risk score": the NRI hazard *risk* score scales with exposed
-property and population, so large urban counties score high on almost every hazard
-(e.g. Dallas County scores ~99 for winter weather). For a logistics hub, what matters
-is how often a hazard occurs, so scoring uses the national percentile of the NRI
-annualized event frequency (AFREQ). Risk score and loss-rate percentile are stored
-for reference.
+Used by find_nearest_hubs only: each county's hazard profile = NRI annualized event
+frequency (AFREQ) per hazard. Not "risk score": that scales with exposed property and
+population, so large urban counties score high on almost every hazard (e.g. Dallas County
+~99 for winter weather). Scoring itself uses NWS warnings + FEMA declarations.
 """
 
 import sqlite3
@@ -37,6 +35,7 @@ HAZARDS = {
     "SWND": "strong_wind",
     "HWAV": "heat_wave",
 }
+# The raw cache also keeps risk score / loss-rate fields for reference; only AFREQ is stored.
 FIELDS = ["STCOFIPS", "COUNTY", "STATEABBRV", "NRI_VER"] + [
     f"{p}_{s}" for p in HAZARDS for s in ("AFREQ", "RISKS", "RISKR", "ALR_NPCTL")
 ]
@@ -78,23 +77,10 @@ def download(refresh: bool = False) -> pd.DataFrame:
 
 
 def to_long(df: pd.DataFrame) -> pd.DataFrame:
-    """One row per county x hazard, with a national frequency percentile (NULL frequency = 0)."""
-    parts = []
-    for prefix, key in HAZARDS.items():
-        afreq = df[f"{prefix}_AFREQ"]
-        part = pd.DataFrame({
-            "county_fips": df["STCOFIPS"],
-            "hazard": key,
-            "afreq": afreq,
-            "freq_pctl": afreq.fillna(0).rank(pct=True, method="average") * 100,
-            "alr_npctl": df[f"{prefix}_ALR_NPCTL"],
-            "risk_score": df[f"{prefix}_RISKS"],
-            "risk_rating": df[f"{prefix}_RISKR"],
-            "nri_version": df["NRI_VER"],
-        })
-        # A hazard that never occurs in a county gets percentile 0, not the tie-average rank.
-        part.loc[afreq.fillna(0) == 0, "freq_pctl"] = 0.0
-        parts.append(part)
+    """One row per county x hazard: annualized event frequency (the only NRI field the app uses)."""
+    parts = [pd.DataFrame({"county_fips": df["STCOFIPS"], "hazard": key, "afreq": df[f"{prefix}_AFREQ"],
+                           "nri_version": df["NRI_VER"]})
+             for prefix, key in HAZARDS.items()]
     return pd.concat(parts, ignore_index=True)
 
 
@@ -103,8 +89,7 @@ def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
     long = to_long(df)
     conn.execute("DELETE FROM nri_county")
     conn.executemany(
-        "INSERT INTO nri_county (county_fips, hazard, afreq, freq_pctl, alr_npctl, risk_score, risk_rating, nri_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO nri_county (county_fips, hazard, afreq, nri_version) VALUES (?, ?, ?, ?)",
         [tuple(None if pd.isna(v) else v for v in row) for row in long.itertuples(index=False)],
     )
     conn.commit()

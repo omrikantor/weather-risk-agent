@@ -29,31 +29,17 @@ CREATE TABLE IF NOT EXISTS daily_weather (
     precip_mm      REAL,
     snowfall_cm    REAL,
     wind_gust_kmh  REAL,
-    weather_code   INTEGER,                -- WMO code (56/57/66/67 = freezing drizzle/rain)
     PRIMARY KEY (hub_id, date)
 );
 
--- FEMA National Risk Index, one row per county x hazard, for ALL US counties.
--- freq_pctl (national percentile of annualized event frequency) is what scoring uses;
--- risk_score is kept for reference only (it scales with exposed property/population).
+-- FEMA National Risk Index annualized event frequency, one row per county x hazard, for
+-- ALL US counties. Used by find_nearest_hubs to compare a place's hazard profile with hubs'.
 CREATE TABLE IF NOT EXISTS nri_county (
     county_fips   TEXT NOT NULL,
     hazard        TEXT NOT NULL,
     afreq         REAL,                    -- annualized frequency (events/year), NULL -> not applicable
-    freq_pctl     REAL NOT NULL,           -- 0-100, national percentile of afreq (NULL treated as 0)
-    alr_npctl     REAL,                    -- expected annual loss rate, national percentile
-    risk_score    REAL,                    -- hazard type risk index score (exposure-driven)
-    risk_rating   TEXT,
     nri_version   TEXT,
     PRIMARY KEY (county_fips, hazard)
-);
-
-CREATE TABLE IF NOT EXISTS counties (
-    county_fips   TEXT PRIMARY KEY,
-    name          TEXT NOT NULL,
-    state         TEXT NOT NULL,
-    lat           REAL NOT NULL,
-    lon           REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS places (

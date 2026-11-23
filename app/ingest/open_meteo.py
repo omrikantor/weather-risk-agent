@@ -33,7 +33,6 @@ COLUMN_MAP = {
     "precipitation_sum": "precip_mm",
     "snowfall_sum": "snowfall_cm",
     "wind_gusts_10m_max": "wind_gust_kmh",
-    "weather_code": "weather_code",
 }
 
 HISTORY_START = date(2016, 1, 1)
@@ -68,21 +67,18 @@ def fetch_hub(hub: dict, start: date, end: date, label: str, refresh: bool = Fal
 
 def to_rows(hub_id: str, data: dict) -> list[tuple]:
     daily = data["daily"]
-    cols = list(COLUMN_MAP)
-    rows = []
+    cols = list(COLUMN_MAP)   # weather_code is fetched (cached raw) but not stored: the archive never
+    rows = []                 # emits freezing-rain/thunder codes, so it carries no useful signal here
     for i, day in enumerate(daily["time"]):
-        vals = [daily[k][i] for k in cols]
-        if vals[cols.index("weather_code")] is not None:
-            vals[cols.index("weather_code")] = int(vals[cols.index("weather_code")])
-        rows.append((hub_id, day, *vals))
+        rows.append((hub_id, day, *[daily[k][i] for k in cols]))
     return rows
 
 
 def store_rows(conn: sqlite3.Connection, rows: list[tuple]) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO daily_weather "
-        "(hub_id, date, tmax_c, tmin_c, precip_mm, snowfall_cm, wind_gust_kmh, weather_code) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(hub_id, date, tmax_c, tmin_c, precip_mm, snowfall_cm, wind_gust_kmh) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

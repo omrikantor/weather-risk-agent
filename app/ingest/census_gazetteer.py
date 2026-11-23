@@ -112,12 +112,11 @@ def ingest(conn: sqlite3.Connection, refresh: bool = False) -> dict:
     places["county_fips"] = nearest_county(places, counties)
     places["population"] = places["geoid"].map(load_population(refresh))
 
+    # County centroids are only needed here (to assign each place a county); not stored.
     cols = ["geoid", "name", "full_name", "state", "lat", "lon", "aland_sqmi", "population", "county_fips"]
-    conn.execute("DELETE FROM counties")
     # Recreate places so schema changes (new columns) apply to existing databases.
     conn.execute("DROP TABLE IF EXISTS places")
     create_schema(conn)
-    conn.executemany("INSERT INTO counties VALUES (?, ?, ?, ?, ?)", counties.itertuples(index=False))
     conn.executemany(
         "INSERT INTO places (geoid, name, full_name, state, lat, lon, aland_sqmi, population, county_fips) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

@@ -249,12 +249,14 @@ Every tool is a plain Python function with a **Pydantic input model**. The OpenA
 
 | Tool | Input | Returns |
 |---|---|---|
+*(As built.)*
+
 | `list_hubs` | `region?` | hubs with region and state |
-| `rank_hubs` | `hazard` (composite/winter/hurricane/flood/convective/heat), `region?`, `top_n` | ordered list: score, tier, rank, disruption days |
-| `compare_hubs` | `hub_ids[2..5]`, `hazards[]` | side-by-side sub-scores + key metrics + NRI inputs |
-| `get_hub_risk_breakdown` | `hub_id` | composite, tier, contributions, top drivers, raw metrics |
-| `get_weather_stat` | `hub_id`, `metric` (enum), `start_date`, `end_date` | count, total_days, pct, threshold used, data source + coverage |
-| `get_methodology` | — | thresholds, weights, data sources, data window, assumptions |
+| `rank_hubs` | `measure` (severe / routine disruption days), `hazard` (all or one), `region?`, `top_n?`, `day_costs?` (analyst cost per day by hazard) | ordered list: days/yr, network tier, confidence |
+| `compare_hubs` | `hub_ids[2..6]`, `hazards?` | per hazard: severe + warning days (with ranges), severity share, evidence (storms, snow, rain, reports); most-exposed hub per hazard |
+| `get_hub_risk_breakdown` | `hub_id` | rank, tier, hazard contributions (warning days × severity share), evidence, recent FEMA disasters in the county, station, confidence |
+| `get_weather_stat` | `hub_id`, `metric` (enum: snow/ice/rain/heat/cold/gust/thunder days, totals, NWS warning days by hazard), `start_date`, `end_date` | count, days with data, %, definition, station vs modeled day counts, source, caveats |
+| `get_methodology` | — | KPI definitions, severity shares with ranges, warning/incident type mappings, data sources, assumptions and limitations |
 | `find_nearest_hubs` | `location` (free text, e.g. "Tampa, FL") | the place found (or candidates if ambiguous), the 3 nearest hubs with distance (km), **hazard-profile similarity** (0–100), the biggest hazard differences, a recommended stand-in hub, and a far-away caveat flag (> 250 km) |
 
 **Stand-in matching (deterministic):** place → county (nearest centroid) → that county's 10 NRI hazard scores → compare with each candidate hub's scores (similarity 0–100 from the distance between the two 10-score vectors) → recommended = best of `0.8 × similarity + 0.2 × proximity`. Lookup + haversine over 45 hubs takes milliseconds. The LLM only explains the result and asks the user before analyzing the stand-in.

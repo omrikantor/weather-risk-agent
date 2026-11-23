@@ -117,6 +117,8 @@ def ingest_declarations(conn: sqlite3.Connection, refresh: bool = False) -> dict
     d["begin"] = pd.to_datetime(d["incidentBeginDate"]).dt.strftime("%Y-%m-%d")
     d["end"] = pd.to_datetime(d["incidentEndDate"].fillna(d["incidentBeginDate"])).dt.strftime("%Y-%m-%d")
     d = d[d["begin"].str[:4].astype(int) <= dp["last_year"]]
+    hub_counties = {r[0] for r in conn.execute("SELECT county_fips FROM hubs")}
+    d = d[d["county_fips"].isin(hub_counties)]           # only hub counties are used
     title = d["declarationTitle"] if "declarationTitle" in d else None
     conn.execute("DELETE FROM fema_declarations")
     conn.executemany("INSERT OR IGNORE INTO fema_declarations VALUES (?, ?, ?, ?, ?, ?)",

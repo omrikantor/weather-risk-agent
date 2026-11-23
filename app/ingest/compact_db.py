@@ -16,7 +16,8 @@ import re
 from app.config import get_settings
 from app.db import get_connection
 
-WITHOUT_ROWID = ["daily_weather", "station_daily", "nri_county", "hub_metrics", "hub_event_rates", "nws_warnings"]
+WITHOUT_ROWID = ["daily_weather", "station_daily", "nri_county", "hub_metrics", "hub_event_rates", "nws_warnings",
+                 "fema_declarations", "hub_ugc"]
 RAW_ONLY = ["severe_reports", "storm_tracks"]
 
 
