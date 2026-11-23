@@ -177,6 +177,14 @@ CREATE TABLE IF NOT EXISTS hub_monthly (
     PRIMARY KEY (hub_id, hazard, month)
 );
 
+-- When each hazard happens at each hub and what its events look like (from NWS warning days 2006-2025).
+CREATE TABLE IF NOT EXISTS hub_hazard_season (
+    hub_id      TEXT NOT NULL,
+    hazard      TEXT NOT NULL,
+    profile_json TEXT,                     -- NULL when too few warning days to describe a season
+    PRIMARY KEY (hub_id, hazard)
+);
+
 CREATE TABLE IF NOT EXISTS hub_metrics (
     hub_id        TEXT NOT NULL,
     metric        TEXT NOT NULL,

@@ -24,7 +24,7 @@ const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
 const QTYPE = { ranking: "Ranking", comparison: "Comparison", statistic: "Statistic", explanation: "Explanation",
   methodology: "Methodology", stand_in: "Stand-in hub", clarification: "Clarification", out_of_scope: "Out of scope" };
-const MEASURE = { severe_disruption_days: "Severe disruption days", routine_disruption_days: "Warning days",
+const MEASURE = { severe_disruption_days: "Disaster-level days", routine_disruption_days: "Warning days",
   weather_statistic: "Weather statistic" };
 const SAMPLES = [
   "Which hubs in the Midwest are most exposed to winter disruption?",
@@ -60,6 +60,12 @@ function el(tag, attrs = {}, ...children) {
 /* replaceChildren() would render null/false as text; skip them. */
 function fill(node, ...kids) { node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false)); }
 const fmt = (v, d = 2) => (v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }));
+/* 0.36 -> "once every 2.8 yrs"; 1.4 -> "1.4 days/yr". */
+function oncePer(v) {
+  if (!v) return "none in the data";
+  return v < 1 ? `once every ${fmt(1 / v, 1)} yrs` : `${fmt(v)} days/yr`;
+}
+function monthYear(iso) { const [y, m] = iso.split("-"); return `${MONTHS[+m - 1].slice(0, 3)} ${y}`; }
 const pct = (v) => (v == null ? "–" : `${Math.round(v * 100)}%`);
 function hzChip(h, text) { return el("span", { class: `hz-chip hz-${h}`, html: ICON[h] }, text || HAZARDS[h].label); }
 function renderMarkdown(md) {
@@ -154,7 +160,7 @@ function outlookCard(h, monthName) {
     hzChip(z, HAZARDS[z].short),
     el("div", { style: "margin-top:10px" }, el("div", { class: "pct num" }, pct(h.p_at_least_one_warning_day)),
       el("div", { class: "pct-label" }, `of ${monthName}s had a ${HAZARDS[z].short.toLowerCase()} warning (${h.years_with_warning} of ${h.years_observed} yrs)`)),
-    el("div", { class: "meta" }, el("span", {}, "Severe days"), el("span", { class: "num" }, fmt(h.expected_severe_days_this_month, 2))),
+    el("div", { class: "meta" }, el("span", {}, "Disaster-level days"), el("span", { class: "num" }, fmt(h.expected_severe_days_this_month, 2))),
     events.length ? el("div", { class: "events", title: events.join(" · ") }, events.join(" · ")) : null);
   return card;
 }
@@ -169,7 +175,7 @@ async function loadBoard() {
   try {
     const r = await api(`/api/scores?${q}`);
     const max = Math.max(...r.ranking.map((x) => x.range_90pct[1] || x.value_days_per_year), 0.0001);
-    const unit = state.measure === "severe_disruption_days" ? "Expected severe-disruption days per year"
+    const unit = state.measure === "severe_disruption_days" ? "Disaster-level days per year (part of a federally declared disaster)"
       : "Days per year with a weather warning";
     $("lb-caption").textContent = `${unit} · ${r.hubs_considered} hubs. Dot = best estimate, bar = likely range.`;
     list.replaceChildren(...r.ranking.map((x) => {
@@ -221,11 +227,18 @@ function renderHub(d) {
   const evidence = HAZARD_ORDER.filter((z) => (d.hazards[z].warning_days_per_year || 0) > 0).map((z) => {
     const hz = d.hazards[z];
     const ev = Object.entries(hz.evidence).filter(([k, v]) => !["notable_storms", "record"].includes(k) && v != null);
+    const s = typeof hz.season === "object" ? hz.season : null;
     return el("div", { class: "card", style: "padding:12px 14px;margin-bottom:10px" },
       el("div", { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px" },
         hzChip(z), el("span", { class: "faint num", style: "font-size:12px;text-align:right",
-          title: `${fmt(hz.warning_days_per_year)} warning days/yr × ${pct(hz.severity_share)} of such days were part of a declared disaster` },
-          `${fmt(hz.warning_days_per_year, 1)} warning days/yr · ${fmt(hz.severe_days_per_year)} severe`)),
+          title: `${pct(hz.severity_share)} of warning days for this hazard were part of a federally declared disaster` },
+          `${fmt(hz.warning_days_per_year, 1)} warning days/yr · disaster-level ${oncePer(hz.severe_days_per_year)}`)),
+      s ? el("div", { class: "season" },
+        el("div", {}, el("span", { class: "faint" }, "When "), el("b", {}, s.typical_dates.replace(" - ", " – ")),
+          el("span", { class: "faint" }, ` · peak ${s.peak_month}`)),
+        el("div", {}, el("b", {}, `~${fmt(s.events_per_year, 1)}`), el("span", { class: "faint" }, " events/yr · usually "),
+          el("b", {}, `${s.typical_event_days} day${s.typical_event_days === 1 ? "" : "s"}`),
+          el("span", { class: "faint" }, ` · longest ${s.longest_event_days} days (${monthYear(s.longest_event_start)})`))) : null,
       el("div", { class: "kv" }, ...ev.flatMap(([k, v]) => [el("span", {}, EVIDENCE_LABELS[k] || prettyKey(k)),
         el("span", {}, typeof v !== "number" ? String(v) : k.startsWith("p_") ? pct(v) : fmt(v))])),
       z === "hurricane" && hz.evidence.notable_storms && hz.evidence.notable_storms.length
@@ -236,18 +249,18 @@ function renderHub(d) {
   fill($("drawer-body"),
     el("div", { class: "kpis" },
       el("div", { class: "kpi" }, el("div", { class: "v" }, `#${d.rank}`), el("div", { class: "l" }, `of ${d.of} hubs`)),
-      el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(total)), el("div", { class: "l" }, `severe-disruption days / yr (likely ${fmt(d.severe_days_range_90pct[0])}–${fmt(d.severe_days_range_90pct[1])})`)),
+      el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(total)), el("div", { class: "l" }, `disaster-level days / yr (likely ${fmt(d.severe_days_range_90pct[0])}–${fmt(d.severe_days_range_90pct[1])})`)),
       el("div", { class: "kpi" }, el("div", { class: "v" }, fmt(d.routine_days_per_year, 1)), el("div", { class: "l" }, "warning days / yr"))),
     el("div", { class: "block" }, el("h4", {}, "What drives the score"),
       el("div", { class: "stack" }, ...contrib.filter((c) => c.severe_days_per_year > 0).map((c) =>
         el("span", { class: `hz-${c.hazard}`, style: `width:${(c.share_of_total || 0) * 100}%;background:var(--hz)`, title: HAZARDS[c.hazard].label }))),
       el("div", { class: "legend" }, ...contrib.map((c) => el("div", { class: `hz-${c.hazard}` }, el("i"),
-        el("span", {}, HAZARDS[c.hazard].label), el("span", { class: "num muted" }, `${fmt(c.severe_days_per_year)} days`),
+        el("span", {}, HAZARDS[c.hazard].label), el("span", { class: "num muted" }, oncePer(c.severe_days_per_year)),
         el("span", { class: "num faint", style: "width:42px;text-align:right" }, pct(c.share_of_total)))))),
-    months.length ? el("div", { class: "block" }, el("h4", {}, `Seasonal pattern · peak in ${d.peak_month}`),
+    months.length ? el("div", { class: "block" }, el("h4", {}, `Disaster-level days by month · peak in ${d.peak_month}`),
       el("div", { class: "months" }, ...months.map((v, i) => el("div", { class: `b${i === peakIdx ? " peak" : ""}`,
-        style: `height:${Math.max((v / mMax) * 100, 2)}%`, title: `${MONTHS[i]}: ${fmt(v, 3)} severe days` }))),
-      el("div", { class: "month-labels" }, ...MONTHS.map((m) => el("span", {}, m[0])))) : null,
+        style: `height:${Math.max((v / mMax) * 100, 2)}%`, title: `${MONTHS[i]}: ${fmt(v, 3)} disaster-level days (average)` }))),
+      el("div", { class: "month-labels" }, ...MONTHS.map((m, i) => el("span", { title: m }, i + 1)))) : null,
     el("div", { class: "block" }, el("h4", {}, "The evidence, hazard by hazard"), ...evidence),
     d.recent_fema_major_disasters_in_county.length ? el("div", { class: "block" }, el("h4", {}, "Recent FEMA major disasters (county)"),
       ...d.recent_fema_major_disasters_in_county.map((e) => el("div", { class: "event" },

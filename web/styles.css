@@ -326,6 +326,9 @@ details.prov[open] summary svg { transform: rotate(90deg); }
 .months .b.peak { opacity: 1; }
 .month-labels { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; font-size: 10.5px; color: var(--text-3);
   text-align: center; margin-top: 5px; }
+.season { display: grid; gap: 3px; font-size: 12.5px; background: var(--surface-2); border-radius: 8px;
+  padding: 7px 10px; margin-bottom: 9px; }
+.season b { font-weight: 650; font-variant-numeric: tabular-nums; }
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
 .kv span:nth-child(odd) { color: var(--text-2); }
 .kv span:nth-child(even) { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }

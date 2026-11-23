@@ -2,7 +2,7 @@
 # control how we compute from the data. Each has a rationale; see PLAN.md section 2.5.
 # Same data + same params -> same output.
 
-params_version: "1.1"
+params_version: "1.2"
 
 # ---------------------------------------------------------------------------------------
 # Tier A: long-term event records counted around each hub
@@ -144,6 +144,16 @@ declarations:
     convective: [Severe Storm, Tornado, Straight-Line Winds, Hurricane, Tropical Storm]
     hurricane: [Hurricane, Tropical Storm, Coastal Storm, Typhoon, Tropical Depression]
     heat: []                    # no heat incident type exists in the declarations data
+  # A declaration also matches a hazard when its TITLE matches (case-insensitive regex). FEMA often
+  # files winter disasters under "Severe Storm" or "Flood" (e.g. "SEVERE WINTER STORMS AND BLIZZARD
+  # CONDITIONS", "BLIZZARD OF 96") and tornado/wind disasters under "Flood". Snowmelt and ice-jam
+  # titles are flooding, not winter storms, so they are excluded from the winter pattern.
+  title_patterns:
+    winter: '\bWINTER\b|BLIZZARD|\bSNOW(?!\s?MELT)|ICE STORM|\bICE\b(?!\s+JAMS?)|FREEZ'
+    flood: 'FLOOD'
+    convective: 'TORNADO|STRAIGHT-LINE|HIGH WINDS?|STRONG WINDS?|\bHAIL'
+    hurricane: 'HURRICANE|TROPICAL STORM|TYPHOON'
+    heat: 'EXTREME HEAT|HEAT WAVE'
 
 # ---------------------------------------------------------------------------------------
 # Stand-in hubs for places that aren't hubs (find_nearest_hubs)

@@ -57,6 +57,65 @@ def monthly_rows(hub_id: str, dates: dict[str, set[str]], shares: dict[str, floa
     return rows
 
 
+MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+MIN_DAYS_FOR_SEASON = 5          # fewer warning days than this in 20 years: too few to describe a season
+SEASON_COVERAGE = 0.8            # the season window covers >= 80% of warning days
+
+
+def season_profile(dates: set[str], n_years: int) -> dict | None:
+    """When a hazard happens and what its events look like, from its warning dates (pure function).
+
+    - window: the shortest run of consecutive months (wrapping Dec->Jan) holding >= 80% of warning days
+    - typical range: 10th-90th percentile dates of warning days inside that window
+    - events: runs of consecutive warning days
+    """
+    if len(dates) < MIN_DAYS_FOR_SEASON:
+        return None
+    ds = sorted(pd.to_datetime(list(dates)))
+    counts = [0] * 12
+    for d in ds:
+        counts[d.month - 1] += 1
+    total = len(ds)
+    best = None
+    for length in range(1, 13):
+        for start in range(12):
+            s = sum(counts[(start + i) % 12] for i in range(length))
+            if s >= SEASON_COVERAGE * total and (best is None or s > best[2]):
+                best = (start, length, s)
+        if best:
+            break
+    start, length, covered = best
+    months = [(start + i) % 12 for i in range(length)]
+    # Typical date range: day offset from the window start, so a Nov-Mar window doesn't break at New Year.
+    start_doy = pd.Timestamp(2001, start + 1, 1).day_of_year
+    offsets = sorted(((d.replace(year=2001) if not (d.month == 2 and d.day == 29) else d.replace(year=2001, day=28))
+                      .day_of_year - start_doy) % 365 for d in ds if d.month - 1 in months)
+    lo = offsets[int(0.1 * (len(offsets) - 1))]
+    hi = offsets[int(round(0.9 * (len(offsets) - 1)))]
+    to_md = lambda off: (pd.Timestamp(2001, 1, 1) + pd.Timedelta(days=(start_doy - 1 + off) % 365)).strftime("%b %d")  # noqa: E731
+    # Events: runs of consecutive days.
+    events, run_start, prev = [], ds[0], ds[0]
+    for d in ds[1:]:
+        if (d - prev).days > 1:
+            events.append((run_start, (prev - run_start).days + 1))
+            run_start = d
+        prev = d
+    events.append((run_start, (prev - run_start).days + 1))
+    lengths = sorted(n for _, n in events)
+    longest = max(events, key=lambda e: (e[1], e[0]))
+    return {
+        "usual_months": f"{MONTH_ABBR[months[0]]}-{MONTH_ABBR[months[-1]]}" if length > 1 else MONTH_ABBR[months[0]],
+        "share_of_warning_days_in_usual_months": round(covered / total, 2),
+        "peak_month": MONTH_ABBR[max(range(12), key=lambda i: (counts[i], -i))],
+        "typical_dates": f"{to_md(lo)} - {to_md(hi)}",
+        "events_per_year": round(len(events) / n_years, 1),
+        "typical_event_days": int(lengths[len(lengths) // 2]),
+        "longest_event_days": int(longest[1]),
+        "longest_event_start": longest[0].strftime("%Y-%m-%d"),
+        "warning_days_observed": total,
+    }
+
+
 def compute(conn: sqlite3.Connection) -> dict:
     p = get_params()
     wp, hp = p["warnings"], p["event_rates"]["hurricane"]
@@ -65,9 +124,13 @@ def compute(conn: sqlite3.Connection) -> dict:
     shares = {h: details["hazards"][h]["severity_share"]["share"] for h in HAZARDS}
     create_schema(conn)
     conn.execute("DELETE FROM hub_monthly")
+    conn.execute("DELETE FROM hub_hazard_season")
     total = 0
+    n_years = wp["last_year"] - wp["first_year"] + 1
     for (hub_id,) in conn.execute("SELECT id FROM hubs ORDER BY id").fetchall():
         dates = hub_warning_dates(conn, hub_id)
+        conn.executemany("INSERT INTO hub_hazard_season VALUES (?, ?, ?)",
+                         [(hub_id, h, json.dumps(season_profile(dates.get(h, set()), n_years))) for h in HAZARDS])
         row = conn.execute("SELECT details_json FROM hub_event_rates WHERE hub_id=? AND hazard='hurricane_days' "
                            "AND radius_km=?", (hub_id, radius)).fetchone()
         storm_dates = json.loads(row[0]).get("dates", []) if row else []

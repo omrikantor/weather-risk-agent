@@ -27,6 +27,24 @@ def test_monthly_rows_counts_years_and_days():
     assert len(r) == 5 * 12
 
 
+def test_season_window_wraps_new_year_and_groups_events():
+    from app.scoring.seasonal import season_profile
+    dates = set()
+    for y in range(2010, 2020):     # each winter: a 3-day event in late Dec and a 2-day event in Jan
+        dates |= {f"{y}-12-28", f"{y}-12-29", f"{y}-12-30", f"{y + 1}-01-15", f"{y + 1}-01-16"}
+    dates.add("2015-07-04")         # an outlier outside the season
+    p = season_profile(dates, 20)
+    assert p["usual_months"] == "Dec-Jan" and p["peak_month"] in ("Dec", "Jan")
+    assert p["events_per_year"] == round(21 / 20, 1) and p["typical_event_days"] == 2
+    assert p["longest_event_days"] == 3
+    assert p["typical_dates"].startswith("Dec") and p["typical_dates"].endswith(("Jan 15", "Jan 16"))
+
+
+def test_season_needs_enough_days():
+    from app.scoring.seasonal import season_profile
+    assert season_profile({"2020-01-01", "2020-01-02"}, 20) is None
+
+
 needs_db = pytest.mark.skipif(not get_settings().db_file.exists(), reason="database not built")
 
 

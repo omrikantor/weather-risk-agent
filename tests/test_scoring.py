@@ -162,6 +162,19 @@ def test_share_with_interval():
     assert m.share_with_interval(0, 0, 0.9)["share"] == 0.0
 
 
+def test_declarations_matched_by_type_or_title():
+    from app.scoring.engine import declarations_for_hazard
+    d = pd.DataFrame({"incident_type": ["Severe Storm", "Flood", "Snowstorm", "Flood", "Severe Storm", "Flood"],
+                      "title": ["SEVERE WINTER STORMS AND BLIZZARD CONDITIONS", "BLIZZARD OF 96", "SEVERE SNOWSTORMS",
+                                "HEAVY RAINS, SNOW MELT, FLOODING", "SEVERE STORMS,FLOODING, &  ICE JAMS",
+                                "SEVERE STORMS, TORNADOES, AND FLOODING"]})
+    winter = declarations_for_hazard(d, "winter")["title"].tolist()
+    assert winter == ["SEVERE WINTER STORMS AND BLIZZARD CONDITIONS", "BLIZZARD OF 96", "SEVERE SNOWSTORMS"]
+    assert "SEVERE STORMS, TORNADOES, AND FLOODING" in declarations_for_hazard(d, "convective")["title"].tolist()
+    flood = declarations_for_hazard(d, "flood")["title"].tolist()
+    assert "SEVERE SNOWSTORMS" not in flood and len(flood) == 5   # all others are typed Flood or mention flooding
+
+
 # ------------------------------------------------------------------ composite, tiers, confidence
 
 

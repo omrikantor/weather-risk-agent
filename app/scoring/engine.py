@@ -139,17 +139,26 @@ def hub_evidence(conn: sqlite3.Connection, hub_id: str) -> dict:
 # --------------------------------------------------------------------------- severity shares (pooled)
 
 
+def declarations_for_hazard(decl: pd.DataFrame, hazard: str) -> pd.DataFrame:
+    """Declarations matching a hazard by FEMA incident type OR by title (FEMA often files winter
+    disasters under 'Severe Storm' / 'Flood'); patterns in params.yaml -> declarations."""
+    dp = get_params()["declarations"]
+    by_type = decl["incident_type"].isin(dp["incident_types"][hazard])
+    pattern = dp.get("title_patterns", {}).get(hazard)
+    by_title = decl["title"].fillna("").str.contains(pattern, case=False, regex=True) if pattern else False
+    return decl[by_type | by_title]
+
+
 def severity_shares(conn: sqlite3.Connection, evidence: dict[str, dict]) -> dict[str, dict]:
     p = get_params()
-    types = p["declarations"]["incident_types"]
-    decl = pd.read_sql("SELECT county_fips, incident_type, begin_date, end_date FROM fema_declarations", conn)
+    decl = pd.read_sql("SELECT county_fips, incident_type, title, begin_date, end_date FROM fema_declarations", conn)
     county = dict(conn.execute("SELECT id, county_fips FROM hubs").fetchall())
     k, n = {h: 0 for h in HAZARDS}, {h: 0 for h in HAZARDS}
     for hub_id, ev in evidence.items():
         dc = decl[decl["county_fips"] == county[hub_id]]
         for h in HAZARDS:
             dates = ev["_warning_dates"][h]
-            inc = dc[dc["incident_type"].isin(types[h])]
+            inc = declarations_for_hazard(dc, h)
             k[h] += m.dates_in_incidents(dates, inc)
             n[h] += len(dates)
     return {h: m.share_with_interval(k[h], n[h], p["event_rates"]["confidence_level"]) for h in HAZARDS}
