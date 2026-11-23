@@ -183,6 +183,16 @@ cases:
               - {tool: get_hub_risk_breakdown, args: {hub_id: chicago}, path: "hazards.winter.warning_days_per_year"}
               - {tool: get_hub_risk_breakdown, args: {hub_id: chicago}, path: "hazards.winter.severe_days_per_year"}
 
+  # Live warnings come from the monitor's last check, which changes with the weather, so this case checks
+  # behavior (right tool, right label, says it is live data) rather than specific hubs.
+  - id: live_warnings_now
+    category: live
+    turns:
+      - message: Are any of our hubs under a weather warning right now?
+        tools: [{name: get_live_warnings}]
+        question_type: [live_warnings]
+        mention: [live|right now|currently|last check]
+
   - id: rain_tomorrow
     category: guardrails
     turns:

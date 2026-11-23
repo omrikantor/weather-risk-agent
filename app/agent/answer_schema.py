@@ -36,7 +36,7 @@ class Uncertainty(_Strict):
 class FinalAnswer(_Strict):
     """The whole answer. Only answer_markdown is shown as text; the other fields drive the UI and the checks."""
     question_type: Literal["ranking", "comparison", "statistic", "explanation", "methodology", "stand_in",
-                           "clarification", "out_of_scope"]
+                           "live_warnings", "clarification", "out_of_scope"]
     answer_markdown: str = Field(description="The answer shown to the user. Every number in it must be copied "
                                              "from a tool result.")
     measure_used: Literal["severe_disruption_days", "routine_disruption_days", "weather_statistic", "none"]

@@ -11,6 +11,7 @@ from datetime import date
 
 import pandas as pd
 
+from app.alerts import monitor
 from app.db import get_connection
 from app.scoring import metrics as m
 from app.scoring.engine import HAZARDS, latest_breakdown
@@ -493,6 +494,45 @@ def get_seasonal_outlook(args: s.SeasonalOutlookInput, conn) -> dict:
                           "warning days in this month x the hazard's FEMA severity share, summed over hazards.",
             "note": "Historical frequency (climatology), not a forecast.",
             "source": SOURCES}
+
+
+def _readable_local_time(iso: str | None) -> str | None:
+    """NWS end time in the hub's own time zone, written so every number can be quoted and traced:
+    "2026-11-26T16:00:00-08:00" becomes "Nov 26, 16:00 local time"."""
+    if not iso:
+        return None
+    day, _, time = iso.partition("T")
+    _, month, dom = day.split("-")
+    return f"{MONTHS[int(month) - 1][:3]} {int(dom)}, {time[:5]} local time"
+
+
+@_with_conn
+def get_live_warnings(args: s.LiveWarningsInput, conn) -> dict:
+    """Hubs under an active NWS warning right now, from the warning monitor's last check (app/alerts/monitor.py).
+
+    This is live weather, separate from the historical risk scores. Times are returned in readable form because
+    the answer must quote them and the validator traces every number in it.
+    """
+    live = monitor.recent(conn, limit=1)
+    regions = dict(conn.execute("SELECT id, region FROM hubs").fetchall())
+    warnings = [w for w in live["active_warnings"] if not args.region or regions.get(w["hub_id"]) == args.region]
+    last = live["last_check"]
+    out = {
+        "status": "ok" if last else "no_check_yet",
+        "region": args.region,
+        "hubs_under_warning": len({w["hub_id"] for w in warnings}),
+        "warnings": [{"hub_id": w["hub_id"], "name": w["hub_name"], "state": w["state"],
+                      "region": regions.get(w["hub_id"]), "warning": w["event"], "hazard": w["hazard"],
+                      "until": _readable_local_time(w["ends"])} for w in warnings],
+        "last_checked": f"{last['checked_at'][:16].replace('T', ' ')} UTC" if last else None,
+        "hubs_checked": last["hubs_checked"] if last else 0,
+        "note": "Live National Weather Service warnings at each hub's location, checked every 15 minutes. "
+                "They do not change the historical risk scores or rankings.",
+        "source": "National Weather Service active alerts (live, checked every 15 minutes)",
+    }
+    if not last:
+        out["message"] = "The live warning check has not run yet on this server (it runs every 15 minutes)."
+    return out
 
 
 def find_nearest_hubs(args: s.FindNearestHubsInput, conn=None) -> dict:

@@ -32,7 +32,7 @@ const SPEAKER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const WARN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
 const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
 const QTYPE = { ranking: "Ranking", comparison: "Comparison", statistic: "Statistic", explanation: "Explanation",
-  methodology: "Methodology", stand_in: "Stand-in hub", clarification: "Clarification", out_of_scope: "Out of scope" };
+  methodology: "Methodology", stand_in: "Stand-in hub", live_warnings: "Live warnings", clarification: "Clarification", out_of_scope: "Out of scope" };
 const MEASURE = { severe_disruption_days: "Disaster-level days", routine_disruption_days: "Warning days",
   weather_statistic: "Weather statistic" };
 /* Sample questions on the welcome screen (the assignment's questions plus two features). */

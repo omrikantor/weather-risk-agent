@@ -43,6 +43,9 @@ TOOLS: dict[str, Tool] = {tool.name: tool for tool in [
                                  "(default: this month), the main hazard, how often it happened (% of years), and "
                                  "past FEMA disasters in that month. Historical frequency, not a forecast.",
          s.SeasonalOutlookInput, t.get_seasonal_outlook),
+    Tool("get_live_warnings", "Which hubs are under an active National Weather Service warning RIGHT NOW (live data, "
+                              "checked every 15 minutes), optionally for one region. Not a forecast, and separate "
+                              "from the historical risk scores.", s.LiveWarningsInput, t.get_live_warnings),
     Tool("find_nearest_hubs", "For a US place that is NOT one of our hubs: locate it and recommend the most similar "
                               "nearby hub as a stand-in (hazard-profile similarity + distance).",
          s.FindNearestHubsInput, t.find_nearest_hubs),

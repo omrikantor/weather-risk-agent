@@ -1,10 +1,10 @@
 {
  "summary": {
-  "run_at": "2026-11-23T21:08:24",
+  "run_at": "2026-11-23T22:15:49",
   "model": "gpt-6.2-sol",
   "repeat": 1,
-  "cases": 20,
-  "runs": 20,
+  "cases": 21,
+  "runs": 21,
   "case_pass_rate": 1.0,
   "by_category": {
    "comparison": "2/2",
@@ -12,6 +12,7 @@
    "false_premise": "1/1",
    "follow_up": "1/1",
    "guardrails": "2/2",
+   "live": "1/1",
    "methodology": "1/1",
    "names": "3/3",
    "ranking": "4/4",
@@ -20,22 +21,22 @@
    "timing": "2/2"
   },
   "by_check_type": {
-   "answered": "22/22",
+   "answered": "23/23",
    "confirm": "3/3",
    "figure": "12/12",
-   "mention": "24/24",
-   "no_dashes": "22/22",
+   "mention": "25/25",
+   "no_dashes": "23/23",
    "no_tools": "1/1",
    "not_mention": "1/1",
    "order": "5/5",
-   "question_type": "6/6",
-   "tool": "17/17",
+   "question_type": "7/7",
+   "tool": "18/18",
    "tool_arg": "1/1",
-   "validation_passed": "22/22"
+   "validation_passed": "23/23"
   },
-  "avg_latency_s_per_turn": 11.1,
-  "total_cost_usd": 0.2822,
-  "avg_cost_usd_per_turn": 0.0128
+  "avg_latency_s_per_turn": 11.3,
+  "total_cost_usd": 0.3479,
+  "avg_cost_usd_per_turn": 0.0151
  },
  "runs": [
   {
@@ -69,7 +70,7 @@
       [
        "order",
        true,
-       "expected ['Fargo', 'Minneapolis', 'Milwaukee'], positions [2, 76, 92]"
+       "expected ['Fargo', 'Minneapolis', 'Milwaukee'], positions [2, 81, 97]"
       ],
       [
        "question_type",
@@ -78,22 +79,22 @@
       ]
      ],
      "passed": true,
-     "answer": "**Fargo is the Midwest hub most exposed to winter disruption**, followed by Minneapolis and Milwaukee. Fargo averages **9.85 winter warning days per year** and about **one disaster-level winter day every 2.1 years**.\n\n| Rank | Hub | Disaster-level days/yr (90% range) | About one disaster-level day every | Warning days/yr |\n|---|---|---:|---:|---:|\n| 1 | Fargo, ND | 0.48 (0.36 to 0.63) | 2.1 years | 9.85 |\n| 2 | Minneapolis, MN | 0.33 (0.24 to 0.44) | 3.0 years | 6.8 |\n| 3 | Milwaukee, WI | 0.27 (0.20 to 0.37) | 3.7 years | 5.65 |\n| 4 | Des Moines, IA | 0.22 (0.16 to 0.31) | 4.5 years | 4.55 |\n| 5 | Cincinnati, OH | 0.19 (0.14 to 0.27) | 5.2 years | 4.0 |\n\nThe ranking uses **disaster-level days**, the expected number of winter warning days associated with a federally declared major disaster. Fargo also averages **54.86 extreme-cold days per year**, a standout among these hubs. Fargo is the first candidate for winter resilience investment based on the historical estimates, but its range overlaps Minneapolis's, and the ranges for the next several hubs overlap substantially. Treat the exact order as uncertain.",
+     "answer": "**Fargo, ND, is the Midwest hub most exposed to winter disruption**, followed by Minneapolis and Milwaukee. For winter resilience investment, Fargo is the first hub to review: it averages **9.85 winter warning days per year**, and a disaster-level winter day about once every **2.1 years**.\n\nThe ranking uses **disaster-level winter days per year**: expected days when a National Weather Service winter warning is part of a federally declared major disaster. Warning days per year show how often hubs face winter warnings, whether or not a disaster is declared.\n\n| Rank | Hub | Disaster-level winter days/yr (90% range) | About one disaster-level day every | Winter warning days/yr |\n|---:|---|---:|---:|---:|\n| 1 | Fargo, ND | 0.48 (0.36 to 0.63) | 2.1 years | 9.85 |\n| 2 | Minneapolis, MN | 0.33 (0.24 to 0.44) | 3.0 years | 6.8 |\n| 3 | Milwaukee, WI | 0.27 (0.20 to 0.37) | 3.7 years | 5.65 |\n| 4 | Des Moines, IA | 0.22 (0.16 to 0.31) | 4.5 years | 4.55 |\n| 5 | Cincinnati, OH | 0.19 (0.14 to 0.27) | 5.2 years | 4.0 |\n\nFargo stands out for frequent winter warnings and extreme cold. Snow and ice are also worth planning for in Minneapolis and Milwaukee. The uncertainty ranges overlap, so the exact order among close ranks is less certain than the table suggests.",
      "tools": [
       "rank_hubs",
       "compare_hubs"
      ],
-     "latency_ms": 17152,
-     "cost_usd": 0.01776,
+     "latency_ms": 22252,
+     "cost_usd": 0.03077,
      "tokens": {
-      "input_tokens": 16453,
-      "cached_tokens": 12025,
-      "output_tokens": 770
+      "input_tokens": 17098,
+      "cached_tokens": 6515,
+      "output_tokens": 895
      }
     }
    ],
-   "cost_usd": 0.01776,
-   "latency_ms": 17152,
+   "cost_usd": 0.03077,
+   "latency_ms": 22252,
    "repeat": 1
   },
   {
@@ -136,22 +137,22 @@
       ]
      ],
      "passed": true,
-     "answer": "**Prioritize Jacksonville, Philadelphia, and Wichita.** They have the highest estimated **disaster-level days/yr** across the 47 hubs when all hazards are included and each disruption day is weighted equally.\n\n| Rank | Hub | Disaster-level days/yr (90% range) | Where to focus investment |\n|---|---|---:|---|\n| 1 | Jacksonville, FL | 2.43 (1.82 to 3.23) | Flood protection and hurricane continuity planning |\n| 2 | Philadelphia, PA | 2.34 (1.84 to 3.02) | Flood protection and backup routes |\n| 3 | Wichita, KS | 2.22 (1.81 to 2.81) | Flood protection and severe thunderstorm preparedness |\n\nDisaster-level days are estimated from weather warnings and FEMA major disaster declarations. They are not measured facility downtime. The ranges overlap substantially, including with Boston, the next-ranked hub, so treat this as a shortlist rather than a firm spending order. Before committing funds, compare site vulnerabilities, expected outage costs, and project costs.",
+     "answer": "**Prioritize Jacksonville, Philadelphia, and Wichita** for resilience investment. They rank highest among the 47 hubs by **disaster-level days per year**, a historical estimate of days with a National Weather Service warning associated with a federally declared major disaster.\n\n| Rank | Hub | Disaster-level days/yr | 90% range | Investment focus |\n|---|---|---:|---|---|\n| 1 | Jacksonville, FL | 2.43 | 1.82 to 3.23 | Flood protection and hurricane continuity planning |\n| 2 | Philadelphia, PA | 2.34 | 1.84 to 3.02 | Flood protection and backup access routes |\n| 3 | Wichita, KS | 2.22 | 1.81 to 2.81 | Flood protection and hardening against severe thunderstorms, wind, and hail |\n\n**Start with flood resilience at all three.** The uncertainty ranges overlap substantially, including with Boston, the next-ranked hub. Use this as a shortlist, not a fixed funding order: check site vulnerabilities, the cost of downtime, and the cost of mitigation before allocating capital.",
      "tools": [
       "rank_hubs",
       "compare_hubs"
      ],
-     "latency_ms": 15385,
-     "cost_usd": 0.02765,
+     "latency_ms": 15791,
+     "cost_usd": 0.02852,
      "tokens": {
-      "input_tokens": 19026,
-      "cached_tokens": 8942,
-      "output_tokens": 659
+      "input_tokens": 19671,
+      "cached_tokens": 9249,
+      "output_tokens": 675
      }
     }
    ],
-   "cost_usd": 0.02765,
-   "latency_ms": 15385,
+   "cost_usd": 0.02852,
+   "latency_ms": 15791,
    "repeat": 1
   },
   {
@@ -190,25 +191,25 @@
       [
        "order",
        true,
-       "expected ['Jacksonville', 'Miami', 'Houston', 'Orlando', 'Philadelphia'], positions [2, 385, 425, 467, 509]"
+       "expected ['Jacksonville', 'Miami', 'Houston', 'Orlando', 'Philadelphia'], positions [2, 287, 327, 369, 411]"
       ]
      ],
      "passed": true,
-     "answer": "**Jacksonville ranks first** when hurricane days count **3 times** as much as other hazard days. The ranking covers all 47 hubs and uses cost-weighted disaster-level days per year. The scores are weighted for comparison, not literal counts of days.\n\n| Rank | Hub | Weighted disaster-level days/yr | 90% range |\n|---:|---|---:|---:|\n| 1 | Jacksonville, FL | 4.33 | 3.08 to 6.00 |\n| 2 | Miami, FL | 3.25 | 2.18 to 4.74 |\n| 3 | Houston, TX | 3.10 | 2.09 to 4.50 |\n| 4 | Orlando, FL | 2.61 | 1.69 to 3.91 |\n| 5 | Philadelphia, PA | 2.57 | 1.92 to 3.56 |\n\nThe ranges overlap substantially, so the exact ordering is uncertain, especially for Miami versus Houston and Orlando versus Philadelphia.",
+     "answer": "**Jacksonville ranks highest** when hurricane disaster-level days count 3 times as much as days from any other hazard. The ranking covers all 47 hubs.\n\n| Rank | Hub | Weighted disaster-level days/yr | 90% range |\n|---:|---|---:|---:|\n| 1 | Jacksonville, FL | 4.33 | 3.08 to 6.00 |\n| 2 | Miami, FL | 3.25 | 2.18 to 4.74 |\n| 3 | Houston, TX | 3.10 | 2.09 to 4.50 |\n| 4 | Orlando, FL | 2.61 | 1.69 to 3.91 |\n| 5 | Philadelphia, PA | 2.57 | 1.92 to 3.56 |\n\nThese are cost-weighted scores, not literal day counts. The ranges overlap substantially, so the exact order is uncertain, especially for Miami versus Houston and Orlando versus Philadelphia.",
      "tools": [
       "rank_hubs"
      ],
-     "latency_ms": 14303,
-     "cost_usd": 0.0146,
+     "latency_ms": 11392,
+     "cost_usd": 0.0144,
      "tokens": {
-      "input_tokens": 9308,
-      "cached_tokens": 5566,
-      "output_tokens": 656
+      "input_tokens": 9738,
+      "cached_tokens": 5754,
+      "output_tokens": 586
      }
     }
    ],
-   "cost_usd": 0.0146,
-   "latency_ms": 14303,
+   "cost_usd": 0.0144,
+   "latency_ms": 11392,
    "repeat": 1
   },
   {
@@ -237,30 +238,30 @@
       [
        "tool:rank_hubs",
        true,
-       "called [('rank_hubs', {'measure': 'routine_disruption_days', 'hazard': 'heat', 'region': 'West', 'top_n': None, 'day_costs': None})]"
+       "called [('rank_hubs', {'measure': 'routine_disruption_days', 'hazard': 'heat', 'region': 'West', 'top_n': 5, 'day_costs': None})]"
       ],
       [
        "order",
        true,
-       "expected ['Las Vegas', 'Phoenix', 'Boise'], positions [2, 16, 101]"
+       "expected ['Las Vegas', 'Phoenix', 'Boise'], positions [2, 16, 356]"
       ]
      ],
      "passed": true,
-     "answer": "**Las Vegas and Phoenix get the most heat warning days among West hubs.** Both average far more than Boise, the next-highest hub.\n\n| Rank | Hub | Heat warning days/yr | 90% range |\n|---:|---|---:|---:|\n| 1 | Las Vegas, NV | 13.55 | 12.23 to 14.98 |\n| 2 | Phoenix, AZ | 12.05 | 10.80 to 13.41 |\n| 3 | Boise, ID | 2.35 | 1.82 to 3.00 |\n\nLas Vegas ranks first on the historical average, but its range overlaps Phoenix\u2019s, so the difference between them is uncertain. These are National Weather Service warning days, based on local warning thresholds, not disaster-level days.",
+     "answer": "**Las Vegas and Phoenix get the most heat warning days among West hubs.** Las Vegas ranks first on the historical average, but the two hubs\u2019 90% ranges overlap, so the lead is uncertain.\n\n| Rank | Hub | Heat warning days/yr | 90% range |\n|---|---|---:|---:|\n| 1 | Las Vegas, NV | 13.55 | 12.23 to 14.98 |\n| 2 | Phoenix, AZ | 12.05 | 10.80 to 13.41 |\n| 3 | Boise, ID | 2.35 | 1.82 to 3.00 |\n| 4 | Salt Lake City, UT | 1.45 | 1.04 to 1.98 |\n| 5 | Oakland (SF Bay Area), CA | 0.90 | 0.58 to 1.33 |\n\nThe ranking counts days with a National Weather Service heat warning from 2006 to 2025. Warning thresholds are set locally, so this compares warning frequency, not days above a common temperature.",
      "tools": [
       "rank_hubs"
      ],
-     "latency_ms": 10443,
-     "cost_usd": 0.01379,
+     "latency_ms": 11455,
+     "cost_usd": 0.01418,
      "tokens": {
-      "input_tokens": 9862,
-      "cached_tokens": 5542,
-      "output_tokens": 460
+      "input_tokens": 9623,
+      "cached_tokens": 5742,
+      "output_tokens": 584
      }
     }
    ],
-   "cost_usd": 0.01379,
-   "latency_ms": 10443,
+   "cost_usd": 0.01418,
+   "latency_ms": 11455,
    "repeat": 1
   },
   {
@@ -313,21 +314,21 @@
       ]
      ],
      "passed": true,
-     "answer": "**Houston has greater flood exposure. Miami has higher hurricane exposure on the point estimates, but the hurricane comparison is less certain.** The comparison uses expected disaster-level days as the primary measure and shows warning days for routine disruption.\n\n| Hazard | Miami | Houston |\n|---|---|---|\n| Hurricane | A disaster-level day about once every 1.1 years; 2.0 warning days/yr | A disaster-level day about once every 1.4 years; 1.5 warning days/yr |\n| Flood | A disaster-level day about once every 3.1 years; 2.0 warning days/yr | A disaster-level day about once every 1.4 years; 4.4 warning days/yr |\n\n**Resilience priority:** Put flood preparedness first in Houston, where flood warnings are more frequent than hurricane warnings. Put hurricane preparedness first in Miami, where the hazards have the same warning frequency but hurricanes account for more expected disaster-level days.\n\nThe 90% ranges for disaster-level hurricane days overlap substantially (Miami: 0.61 to 1.36 days/yr; Houston: 0.44 to 1.06), so Miami's lead is uncertain. The flood ranges do not overlap (Miami: 0.23 to 0.45 days/yr; Houston: 0.55 to 0.91). These are historical estimates, not forecasts.",
+     "answer": "**Miami has higher estimated hurricane exposure; Houston has higher flood exposure.** The flood difference is clearer: the disaster-level estimates overlap for hurricanes but not for flooding.\n\n| Hazard | Miami | Houston |\n|---|---|---|\n| Hurricane | **0.93 disaster-level days/yr** (about once every 1.1 years); 2.0 warning days/yr | **0.69 disaster-level days/yr** (about once every 1.4 years); 1.5 warning days/yr |\n| Flood | **0.32 disaster-level days/yr** (about once every 3.1 years); 2.0 warning days/yr | **0.71 disaster-level days/yr** (about once every 1.4 years); 4.4 warning days/yr |\n\nDisaster-level days are the primary comparison measure. They estimate how many warning days are associated with a federally declared major disaster. Warning days show how often each hub is under a warning, whether or not a disaster is declared.\n\n- **Hurricanes:** Miami also had more nearby hurricanes in the historical track record: 1.58 per decade within 150 km, versus 1.45 for Houston. But the 90% ranges for disaster-level days overlap (Miami: 0.61 to 1.36; Houston: 0.44 to 1.06), so Miami\u2019s lead is uncertain.\n- **Flooding:** Houston has more warning days and a higher disaster-level estimate. The 90% ranges do not overlap (Miami: 0.23 to 0.45; Houston: 0.55 to 0.91), making flooding the clearer distinction for resilience planning.",
      "tools": [
       "compare_hubs"
      ],
-     "latency_ms": 11517,
-     "cost_usd": 0.01251,
+     "latency_ms": 14553,
+     "cost_usd": 0.01758,
      "tokens": {
-      "input_tokens": 10426,
-      "cached_tokens": 7474,
-      "output_tokens": 586
+      "input_tokens": 10856,
+      "cached_tokens": 5744,
+      "output_tokens": 678
      }
     }
    ],
-   "cost_usd": 0.01251,
-   "latency_ms": 11517,
+   "cost_usd": 0.01758,
+   "latency_ms": 14553,
    "repeat": 1
   },
   {
@@ -375,21 +376,21 @@
       ]
      ],
      "passed": true,
-     "answer": "**Boston is more exposed to winter storms than Newark**, both by the primary measure of disaster-level days and by the frequency of winter weather warnings.\n\n| Hub | Disaster-level winter days/yr | 90% range | Winter warning days/yr |\n|---|---:|---:|---:|\n| Boston | 0.27 (about once every 3.7 years) | 0.19 to 0.37 | 5.55 |\n| Newark | 0.12 (about once every 8.3 years) | 0.08 to 0.18 | 2.5 |\n\nBoston has more heavy snow days per year (3.33 vs. 2.67), although Newark has more observed ice days (8.0 vs. 6.43). The disaster-level ranges do not overlap, supporting Boston as the higher priority for winter-storm resilience.",
+     "answer": "**Boston is more exposed to winter storms than Newark.** It has more disaster-level winter days, the primary measure for resilience planning, and more National Weather Service winter warning days.\n\n| Hub | Disaster-level days/yr | Warning days/yr |\n|---|---:|---:|\n| Boston | 0.27, or a disaster-level winter day about once every 3.7 years | 5.55 |\n| Newark | 0.12, or a disaster-level winter day about once every 8.3 years | 2.5 |\n\nBoston averages more heavy-snow days per year (3.33 vs. 2.67), while Newark averages more observed ice days (8.0 vs. 6.43). The 90% ranges for disaster-level days do not overlap: 0.19 to 0.37 for Boston and 0.08 to 0.18 for Newark.",
      "tools": [
       "compare_hubs"
      ],
-     "latency_ms": 9748,
-     "cost_usd": 0.01116,
+     "latency_ms": 10470,
+     "cost_usd": 0.01373,
      "tokens": {
-      "input_tokens": 9545,
-      "cached_tokens": 6593,
-      "output_tokens": 460
+      "input_tokens": 9975,
+      "cached_tokens": 5742,
+      "output_tokens": 469
      }
     }
    ],
-   "cost_usd": 0.01116,
-   "latency_ms": 9748,
+   "cost_usd": 0.01373,
+   "latency_ms": 10470,
    "repeat": 1
   },
   {
@@ -437,21 +438,21 @@
       ]
      ],
      "passed": true,
-     "answer": "In 2025, Denver recorded at least 1 cm of snowfall on **4.93% of days** (18 out of 365). The data use Denver International Airport observations, with a modeled estimate for 1 day.",
+     "answer": "In 2025, Denver recorded at least 1 cm of snowfall on **4.93% of days** (18 out of 365), based on data for Denver International Airport. Lighter snowfall did not count.",
      "tools": [
       "get_weather_stat"
      ],
-     "latency_ms": 7790,
-     "cost_usd": 0.00932,
+     "latency_ms": 8682,
+     "cost_usd": 0.01067,
      "tokens": {
-      "input_tokens": 8807,
-      "cached_tokens": 5855,
-      "output_tokens": 283
+      "input_tokens": 9237,
+      "cached_tokens": 5743,
+      "output_tokens": 311
      }
     }
    ],
-   "cost_usd": 0.00932,
-   "latency_ms": 7790,
+   "cost_usd": 0.01067,
+   "latency_ms": 8682,
    "repeat": 1
   },
   {
@@ -489,21 +490,21 @@
       ]
      ],
      "passed": true,
-     "answer": "Buffalo had **19 days** with a National Weather Service winter weather warning in **2022**.",
+     "answer": "Buffalo, NY was under a National Weather Service winter weather warning on **19 days in 2022**. This count includes winter storm, blizzard, ice storm, and lake-effect snow warnings.",
      "tools": [
       "get_weather_stat"
      ],
-     "latency_ms": 6606,
-     "cost_usd": 0.00861,
+     "latency_ms": 6061,
+     "cost_usd": 0.00918,
      "tokens": {
-      "input_tokens": 8687,
-      "cached_tokens": 5735,
-      "output_tokens": 213
+      "input_tokens": 9117,
+      "cached_tokens": 5747,
+      "output_tokens": 187
      }
     }
    ],
-   "cost_usd": 0.00861,
-   "latency_ms": 6606,
+   "cost_usd": 0.00918,
+   "latency_ms": 6061,
    "repeat": 1
   },
   {
@@ -551,21 +552,21 @@
       ]
      ],
      "passed": true,
-     "answer": "Dallas is in the **High** risk tier because flooding drives most of its disaster-level weather disruption, with severe thunderstorms a clear second. It ranks **13th of 47 hubs** at **1.36 disaster-level days/yr** (90% range: 1.07 to 1.81). That measure counts expected days when a National Weather Service warning is part of a federally declared major disaster, not all warning days.\n\n| Hazard | Why it matters |\n|---|---|\n| **Flooding** | About **63%** of the disaster-level total. Dallas averages **5.35 flood warning days/yr**, with a disaster-level flood day about once every **1.2 years**. The county's **2024** federal disaster declaration for storms and flooding is a recent example. |\n| **Thunderstorms, hail, and damaging winds** | About **30%** of the disaster-level total. Dallas averages **9.4 storm warning days/yr**, more than for any other hazard, but a disaster-level storm day occurs about once every **2.4 years**. |\n| **Winter weather** | A smaller contributor: **1.8 warning days/yr**, with a disaster-level winter day about once every **11.5 years**. |\n\nFor resilience investment, **flooding is the first priority**. Thunderstorms are the bigger concern for routine disruption.",
+     "answer": "**Flooding is the main reason Dallas is in the High risk tier.** Dallas ranks **13th of 47 hubs** by disaster-level disruption, with **1.36 disaster-level days per year** (90% range: 1.07 to 1.81). The score estimates how often a National Weather Service warning is part of a federally declared major disaster. It does not measure actual hub downtime.\n\n| Hazard | Warning days per year | Estimated frequency of a disaster-level day |\n|---|---:|---|\n| Flooding | 5.35 | About once every 1.2 years |\n| Thunderstorms, tornadoes, and damaging winds | 9.4 | About once every 2.4 years |\n| Winter weather | 1.8 | About once every 11.5 years |\n\nThunderstorms trigger more warning days, but flood warnings are more likely to be associated with a major disaster. Flooding accounts for nearly two-thirds of Dallas's disaster-level score. The county's 2024 federal disaster declaration for severe storms, straight-line winds, tornadoes, and flooding illustrates why both hazards matter.\n\nFor resilience investment, **prioritize flooding, then severe thunderstorms**. Heat still brings 3.4 warning days per year, even though it adds nothing to the disaster-level score because FEMA declared no heat disasters in the data.",
      "tools": [
       "get_hub_risk_breakdown"
      ],
-     "latency_ms": 13343,
-     "cost_usd": 0.01229,
+     "latency_ms": 12472,
+     "cost_usd": 0.01746,
      "tokens": {
-      "input_tokens": 11076,
-      "cached_tokens": 8124,
-      "output_tokens": 557
+      "input_tokens": 11506,
+      "cached_tokens": 5743,
+      "output_tokens": 536
      }
     }
    ],
-   "cost_usd": 0.01229,
-   "latency_ms": 13343,
+   "cost_usd": 0.01746,
+   "latency_ms": 12472,
    "repeat": 1
   },
   {
@@ -613,21 +614,21 @@
       ]
      ],
      "passed": true,
-     "answer": "**Have Fargo winter-ready by late November.** Winter warnings usually occur from December through March, with a typical window of December 12 to March 14 and a peak in December. Fargo averages 5.3 winter warning events per year, and a typical event lasts 2 days.\n\n**A disaster-level winter day occurs about once every 2.1 years on average.** Fargo averages 0.48 disaster-level winter days per year (90% range: 0.36 to 0.63), compared with 9.85 winter warning days per year. A disaster-level day is a warning day associated with a federally declared major disaster. The historical rate is not a forecast or a count of separate disasters.",
+     "answer": "**Have Fargo\u2019s winter plan ready by late November.** Winter warnings usually occur from December through March, with a typical window of December 12 to March 14 and a peak in December. Fargo averages 5.3 winter warning events per year, and a typical event lasts 2 days.\n\n**A disaster-level winter day is expected about once every 2.1 years.** That\u2019s 0.48 disaster-level days per year (90% range: 0.36 to 0.63), compared with 9.85 winter warning days per year. A disaster-level day is a warning day that is part of a federally declared major disaster. This is a historical average, not a forecast or a schedule for individual storms.",
      "tools": [
       "get_hub_risk_breakdown"
      ],
-     "latency_ms": 9571,
-     "cost_usd": 0.01049,
+     "latency_ms": 8996,
+     "cost_usd": 0.01571,
      "tokens": {
-      "input_tokens": 11004,
-      "cached_tokens": 8052,
-      "output_tokens": 378
+      "input_tokens": 11434,
+      "cached_tokens": 5751,
+      "output_tokens": 377
      }
     }
    ],
-   "cost_usd": 0.01049,
-   "latency_ms": 9571,
+   "cost_usd": 0.01571,
+   "latency_ms": 8996,
    "repeat": 1
   },
   {
@@ -661,7 +662,7 @@
       [
        "order",
        true,
-       "expected ['Jacksonville', 'Orlando', 'Miami'], positions [64, 549, 589]"
+       "expected ['Jacksonville', 'Orlando', 'Miami'], positions [92, 541, 577]"
       ],
       [
        "mention:hurricane",
@@ -675,21 +676,21 @@
       ]
      ],
      "passed": true,
-     "answer": "**Watch for hurricanes and tropical storms first, especially at Jacksonville.** Tropical weather is the main driver at every hub in the table, ranked by expected **disaster-level days in September**. Also keep flood contingency plans ready for Jacksonville and Houston, and watch for severe thunderstorms and wind in Boston.\n\n| Rank | Hub | Disaster-level days in September | Septembers with a tropical warning | Other hazards to watch |\n|---|---|---:|---:|---|\n| 1 | Jacksonville, FL | 0.622 | 5 of 20 | Flood warnings in 40% of Septembers |\n| 2 | Orlando, FL | 0.381 | 4 of 20 | |\n| 3 | Miami, FL | 0.342 | 5 of 20 | |\n| 4 | Houston, TX | 0.321 | 4 of 20 | Flood warnings in 30% of Septembers |\n| 5 | Boston, MA | 0.238 | 3 of 20 | Severe thunderstorm, tornado, or wind warnings in 35% of Septembers |\n\n**This is historical frequency, not a forecast.** A warning does not necessarily mean disaster-level disruption. The tropical warning frequencies are also uncertain: the 90% range is 10% to 46% for both Jacksonville and Miami, and 7% to 40% for both Orlando and Houston. Those ranges overlap substantially.",
+     "answer": "**Watch hurricanes and tropical storms first, especially at the Florida hubs and Houston.** Jacksonville leads the network for September on expected disaster-level disruption days. Flooding deserves a separate watch in Jacksonville and Houston: flood warnings were more frequent than tropical warnings at both hubs.\n\n| Hub, in September risk order | Expected disaster-level days in September | Septembers with a tropical warning | Also watch |\n|---|---:|---|---|\n| Jacksonville, FL | 0.622 | 5 of 20 | Flooding, warnings in 40% of years |\n| Orlando, FL | 0.381 | 4 of 20 | |\n| Miami, FL | 0.342 | 5 of 20 | |\n| Houston, TX | 0.321 | 4 of 20 | Flooding, warnings in 30% of years |\n| Boston, MA | 0.238 | 3 of 20 | Thunderstorms, tornadoes or damaging winds, warnings in 35% of years |\n\n**Outside the top-ranked hubs**, monitor thunderstorms and damaging winds in Buffalo (warnings in 60% of Septembers) and flooding in Wichita (45%).\n\nFor operations, review tropical-storm rerouting plans first for Florida and Houston, and check flood-prone access routes into Jacksonville and Houston. These are historical patterns from 2006 to 2025, not a forecast. Jacksonville and Orlando's 90% ranges for tropical warning frequency overlap substantially, so their historical warning frequencies aren't clearly different.",
      "tools": [
       "get_seasonal_outlook"
      ],
-     "latency_ms": 15090,
-     "cost_usd": 0.01376,
+     "latency_ms": 16572,
+     "cost_usd": 0.01829,
      "tokens": {
-      "input_tokens": 10065,
-      "cached_tokens": 7113,
-      "output_tokens": 714
+      "input_tokens": 10495,
+      "cached_tokens": 5740,
+      "output_tokens": 821
      }
     }
    ],
-   "cost_usd": 0.01376,
-   "latency_ms": 15090,
+   "cost_usd": 0.01829,
+   "latency_ms": 16572,
    "repeat": 1
   },
   {
@@ -737,21 +738,21 @@
       ]
      ],
      "passed": true,
-     "answer": "We rank hubs by **disaster-level days/yr**, the estimated number of days each year when a National Weather Service (NWS) warning is part of a federally declared major disaster. This is the default measure for prioritizing resilience investment.\n\n- **Count warning days.** For each hub, we measure **warning days/yr** for winter, flood, convective storms (thunderstorms, tornadoes and wind), hurricane and heat. This separate measure shows how often each hazard triggers a warning, whether or not it becomes a declared disaster.\n- **Estimate disaster-level days.** For each hazard, we multiply the hub\u2019s warning days/yr by that hazard\u2019s **FEMA severity share**: the historical share of warning days associated with a major disaster, pooled across the 47 hubs. We add the hazard estimates to get the default hub score. Each disaster-level day counts equally unless an analyst supplies different costs by hazard.\n- **Assign tiers.** High, Elevated and Low are the top, middle and bottom thirds of the network by disaster-level days/yr. They are relative rankings, not absolute risk thresholds.\n\nThe score is a historical proxy, not a record of actual shutdowns or a forecast. Warnings can miss events or be issued for events that do not materialize, and FEMA declarations are partly policy-driven. In particular, heat contributes **0 disaster-level days** because no heat disasters were declared in the data. Heat warning days still count in the routine measure.",
+     "answer": "We rank hubs by **disaster-level days/yr** to prioritize resilience investment. We also report **warning days/yr** so a low disaster-level score doesn\u2019t hide frequent weather warnings.\n\n### How the score works\n\n- **Warning days/yr** measures how often the National Weather Service historically issued a warning covering the hub. We track winter, flood, convective (thunderstorm, tornado, and wind), hurricane, and heat warnings separately. A warning day is a proxy for disruption, not a record of downtime.\n- **Disaster-level days/yr** estimates how many of those warning days are associated with a federally declared major disaster. For each hazard, we multiply the hub\u2019s warning days/yr by the hazard\u2019s **FEMA severity share**, the fraction of warning days associated with a major disaster across the network. We add the hazard contributions to get the hub\u2019s score. Each disaster-level day counts equally unless an analyst supplies relative costs by hazard.\n- **Risk tiers** are relative to the network: High, Elevated, and Low are the top, middle, and bottom thirds of the 47 hubs by disaster-level days/yr.\n\n### What to keep in mind\n\nThe score uses historical NWS warnings from 2006 to 2025 and FEMA major disaster declarations from 1996 to 2025. It\u2019s a baseline, not a forecast. We report 90% uncertainty ranges where relevant, and hurricane estimates are less certain because they\u2019re based on relatively few warning days. FEMA declarations are partly policy-driven: heat contributes 0 disaster-level days because FEMA declared no heat disasters in the data, not because heat is harmless. Use heat warning days/yr to see how often hubs face heat warnings.",
      "tools": [
       "get_methodology"
      ],
-     "latency_ms": 11472,
-     "cost_usd": 0.01132,
+     "latency_ms": 15671,
+     "cost_usd": 0.01502,
      "tokens": {
-      "input_tokens": 9478,
-      "cached_tokens": 6526,
-      "output_tokens": 476
+      "input_tokens": 9908,
+      "cached_tokens": 5739,
+      "output_tokens": 611
      }
     }
    ],
-   "cost_usd": 0.01132,
-   "latency_ms": 11472,
+   "cost_usd": 0.01502,
+   "latency_ms": 15671,
    "repeat": 1
   },
   {
@@ -794,16 +795,16 @@
       ]
      ],
      "passed": true,
-     "answer": "We don\u2019t have hub-level weather disruption data for Tampa, FL. **Orlando is the best available stand-in**, at 125 km away with 82% hazard-profile similarity.\n\nOrlando\u2019s hazard profile shows less coastal and inland flood exposure than Tampa\u2019s, so an Orlando analysis could understate Tampa\u2019s flood risk.\n\nWould you like me to analyze Orlando as a stand-in, using disaster-level days per year and warning days per year?",
+     "answer": "We don\u2019t have hub-level weather disruption data for Tampa, FL. **Orlando is the recommended stand-in:** it\u2019s 125 km away and has a hazard-profile similarity score of 82.0.\n\nOrlando\u2019s county-level profile shows lower coastal and inland flood exposure than Tampa\u2019s, so its risk breakdown could understate flooding at a Tampa site.\n\nWould you like me to analyze Orlando\u2019s disaster-level days and routine warning days as a baseline for Tampa?",
      "tools": [
       "find_nearest_hubs"
      ],
-     "latency_ms": 9522,
-     "cost_usd": 0.00973,
+     "latency_ms": 9392,
+     "cost_usd": 0.01119,
      "tokens": {
-      "input_tokens": 9098,
-      "cached_tokens": 6146,
-      "output_tokens": 321
+      "input_tokens": 9528,
+      "cached_tokens": 5742,
+      "output_tokens": 304
      }
     },
     {
@@ -846,21 +847,21 @@
       ]
      ],
      "passed": true,
-     "answer": "**Orlando, used as a stand-in for Tampa, has an Elevated weather-risk rating.** It ranks **22 of 47 hubs** by disaster-level days, averaging **1.13 days/yr** (90% range: 0.75 to 1.67). It averages **8.4 warning days/yr**. These are historical estimates for Orlando, not Tampa or a prediction of facility downtime.\n\n| Hazard | Disaster-level disruption in Orlando | Warning days/yr |\n|---|---|---:|\n| Hurricanes | A disaster-level day about once every 1.3 years | 1.6 |\n| Thunderstorms, tornadoes and wind | A disaster-level day about once every 4.0 years | 5.7 |\n| Flooding | A disaster-level day about once every 7.3 years | 0.85 |\n\n**Hurricanes drive the most severe risk**, with warnings usually concentrated from August through October and peaking in September. Thunderstorms, tornadoes and wind account for the most warning days. Winter contributes no measured disaster-level days and averages 0 warning days/yr. Heat averages 0.25 warning days/yr but contributes no disaster-level days because FEMA declared no heat disasters in the data.\n\n**For a Tampa site, prioritize hurricane continuity planning and assess flooding locally before committing to a location.** Orlando\u2019s hazard profile shows less coastal and inland flood exposure than Tampa\u2019s, so its flood figures could understate Tampa\u2019s risk. Check storm-surge and inland flood exposure at the facility and along its main truck routes.",
+     "answer": "**Orlando, used as a stand-in for Tampa, has Elevated weather risk.** It ranks **22nd of 47 hubs** by disaster-level days, averaging **1.13 days/yr** (90% range: 0.75 to 1.67). It averages **8.4 National Weather Service warning days/yr**. Disaster-level days are expected warning days associated with a federally declared major disaster, not measured facility downtime.\n\n| Hazard | Disaster-level frequency | Warning days/yr |\n|---|---|---:|\n| Hurricanes | About once every 1.3 years | 1.6 |\n| Convective storms (thunderstorms, tornadoes and damaging winds) | About once every 4.0 years | 5.7 |\n| Flooding | About once every 7.3 years | 0.85 |\n\nHurricanes drive Orlando\u2019s disaster-level risk, with warnings usually concentrated from August through October. Convective storms account for the most warning days, mostly from March through August.\n\n**For a Tampa site, prioritize hurricane continuity and check flood exposure before choosing a property.** Orlando\u2019s county-level profile shows lower coastal and inland flood exposure than Tampa\u2019s, so its flood figures could understate Tampa\u2019s risk. Check storm-surge exposure, drainage and whether truck access routes remain usable during flooding. Orlando\u2019s rank and estimates are not Tampa\u2019s.",
      "tools": [
       "get_hub_risk_breakdown"
      ],
-     "latency_ms": 14076,
-     "cost_usd": 0.01864,
+     "latency_ms": 12109,
+     "cost_usd": 0.0184,
      "tokens": {
-      "input_tokens": 12933,
-      "cached_tokens": 7038,
-      "output_tokens": 615
+      "input_tokens": 13331,
+      "cached_tokens": 7236,
+      "output_tokens": 549
      }
     }
    ],
-   "cost_usd": 0.02837,
-   "latency_ms": 23598,
+   "cost_usd": 0.029589999999999998,
+   "latency_ms": 21501,
    "repeat": 1
   },
   {
@@ -908,21 +909,21 @@
       ]
      ],
      "passed": true,
-     "answer": "I took Brooklyn to mean New York, NY. We don\u2019t have warehouse-level weather risk data for Brooklyn. The best stand-in is **Newark (NYC metro)**, 21 km from the New York City reference point, with a hazard-profile similarity score of 91.1.\n\nNewark\u2019s county-level profile shows more inland flood exposure and less hurricane exposure than the profile used for Brooklyn. For a warehouse decision, check flood exposure at the specific address and along truck access routes rather than relying on the regional comparison alone.\n\nWould you like me to analyze Newark as a stand-in, showing both disaster-level days and routine warning days by hazard?",
+     "answer": "I took Brooklyn to mean New York, NY. We don\u2019t have weather disruption data for Brooklyn itself. **Newark (NYC metro)** is the best regional stand-in: it\u2019s **21 km** from the New York City reference point and has **91.1% hazard-profile similarity**.\n\nThat similarity is based on county-level data, not the warehouse\u2019s address. Newark\u2019s profile shows more inland flood exposure and less hurricane exposure than the New York City profile. For a warehouse decision, check whether the building, loading docks, and truck access routes are exposed to coastal or heavy-rain flooding.\n\nWould you like me to analyze Newark\u2019s historical disaster-level days and routine warning days as a regional benchmark?",
      "tools": [
       "find_nearest_hubs"
      ],
-     "latency_ms": 9837,
-     "cost_usd": 0.01022,
+     "latency_ms": 9788,
+     "cost_usd": 0.01174,
      "tokens": {
-      "input_tokens": 9100,
-      "cached_tokens": 6148,
-      "output_tokens": 370
+      "input_tokens": 9530,
+      "cached_tokens": 5742,
+      "output_tokens": 359
      }
     }
    ],
-   "cost_usd": 0.01022,
-   "latency_ms": 9837,
+   "cost_usd": 0.01174,
+   "latency_ms": 9788,
    "repeat": 1
   },
   {
@@ -970,21 +971,21 @@
       ]
      ],
      "passed": true,
-     "answer": "Which Springfield are you considering: Missouri, Massachusetts, Illinois, Oregon, or Ohio? If you mean a different Springfield, tell me the state.\n\nWe don\u2019t have direct hub-risk data for Springfield. Once you confirm the state, I can recommend a nearby hub with a similar weather-risk profile as a starting point for assessing the new location.",
+     "answer": "Which Springfield are you considering: Missouri, Massachusetts, Illinois, Oregon, or Ohio? If it\u2019s in another state, please specify.\n\nWe don\u2019t have direct hub risk data for Springfield. Once you confirm the state, I can recommend a nearby hub with a similar weather profile as a starting point for assessing the proposed site.",
      "tools": [
       "find_nearest_hubs"
      ],
-     "latency_ms": 6902,
-     "cost_usd": 0.00852,
+     "latency_ms": 6790,
+     "cost_usd": 0.00954,
      "tokens": {
-      "input_tokens": 8689,
-      "cached_tokens": 5737,
-      "output_tokens": 204
+      "input_tokens": 9119,
+      "cached_tokens": 5742,
+      "output_tokens": 221
      }
     }
    ],
-   "cost_usd": 0.00852,
-   "latency_ms": 6902,
+   "cost_usd": 0.00954,
+   "latency_ms": 6790,
    "repeat": 1
   },
   {
@@ -1027,21 +1028,21 @@
       ]
      ],
      "passed": true,
-     "answer": "**Anchorage, Alaska is outside our weather-risk network.** We have no hub data for Anchorage, so we can\u2019t estimate its disaster-level days or warning days per year. Seattle is the closest network hub at 2,277 km, but it\u2019s too far away to be a meaningful stand-in.\n\nFor an Anchorage hub decision, use local National Weather Service warning records and FEMA disaster declarations. For operational planning, check exposure at the proposed site and along its access routes, particularly for snow, ice, and high winds.",
+     "answer": "Anchorage, Alaska, is outside our hub network, so we don\u2019t have a weather-risk score for it. Seattle is the nearest tracked hub at 2,277 km away, beyond the network\u2019s 622 km coverage limit. It isn\u2019t a meaningful stand-in, so I wouldn\u2019t use Seattle\u2019s risk score to make an investment decision for Anchorage.\n\nFor a proposed Anchorage hub, use local weather and disruption records for the site and its main freight routes.",
      "tools": [
       "find_nearest_hubs"
      ],
-     "latency_ms": 9818,
-     "cost_usd": 0.00948,
+     "latency_ms": 7794,
+     "cost_usd": 0.01008,
      "tokens": {
-      "input_tokens": 8667,
-      "cached_tokens": 5715,
-      "output_tokens": 300
+      "input_tokens": 9097,
+      "cached_tokens": 5742,
+      "output_tokens": 280
      }
     }
    ],
-   "cost_usd": 0.00948,
-   "latency_ms": 9818,
+   "cost_usd": 0.01008,
+   "latency_ms": 7794,
    "repeat": 1
   },
   {
@@ -1079,21 +1080,22 @@
       ]
      ],
      "passed": true,
-     "answer": "**Seattle is not the riskiest hub.** It ranks **45th out of 47** on the network\u2019s primary measure, disaster-level days per year, placing it in the **Low** tier. The model estimates **0.11 disaster-level days per year**, with a 90% range of **0.06 to 0.28**. Seattle also ranks last for routine disruption, at **0.95 National Weather Service warning days per year**.\n\n**Flooding is Seattle\u2019s main weather risk.** It accounts for about **98%** of the hub\u2019s modeled disaster-level disruption. Seattle averages **0.65 flood warning days per year**, with a disaster-level flood day about once every **9.5 years**. Flood warnings are concentrated from November through February, making that the main window for local preparedness.",
+     "answer": "**Seattle is one of the least exposed hubs, not the riskiest.** It ranks **45th of 47** in the Low tier by historical disaster-level days/yr, the network\u2019s primary measure for resilience investment. Seattle averages **0.11 disaster-level days/yr** (90% range: 0.06 to 0.28), compared with **2.43** for Jacksonville, the top-ranked hub.\n\n**Flooding is Seattle\u2019s main weather risk.** It accounts for nearly all of Seattle\u2019s disaster-level score: about one disaster-level flood day every **9.5 years**, versus **0.65 flood warning days/yr**. Flood warnings usually occur from November through February.\n\nSeattle also ranks **47th** for routine warning days, at **0.95 warning days/yr** across all hazards. The historical ranking measures weather exposure, not the operational cost of losing a hub.",
      "tools": [
-      "get_hub_risk_breakdown"
+      "get_hub_risk_breakdown",
+      "rank_hubs"
      ],
-     "latency_ms": 11142,
-     "cost_usd": 0.01113,
+     "latency_ms": 11706,
+     "cost_usd": 0.01809,
      "tokens": {
-      "input_tokens": 10940,
-      "cached_tokens": 7988,
-      "output_tokens": 443
+      "input_tokens": 11918,
+      "cached_tokens": 5744,
+      "output_tokens": 517
      }
     }
    ],
-   "cost_usd": 0.01113,
-   "latency_ms": 11142,
+   "cost_usd": 0.01809,
+   "latency_ms": 11706,
    "repeat": 1
   },
   {
@@ -1126,17 +1128,17 @@
       ]
      ],
      "passed": true,
-     "answer": "**Fargo, ND, is the Midwest hub most exposed to winter disruption**, followed by Minneapolis and Milwaukee. Among 13 Midwest hubs, Fargo ranks first by estimated disaster-level winter days and averages 9.85 winter warning days per year.\n\n| Rank | Hub | Disaster-level winter days/yr (90% range) | A disaster-level winter day about once every | Winter warning days/yr |\n|---:|---|---:|---:|---:|\n| 1 | Fargo, ND | 0.48 (0.36 to 0.63) | 2.1 years | 9.85 |\n| 2 | Minneapolis, MN | 0.33 (0.24 to 0.44) | 3.0 years | 6.8 |\n| 3 | Milwaukee, WI | 0.27 (0.20 to 0.37) | 3.7 years | 5.65 |\n| 4 | Des Moines, IA | 0.22 (0.16 to 0.31) | 4.5 years | 4.55 |\n| 5 | Cincinnati, OH | 0.19 (0.14 to 0.27) | 5.2 years | 4.0 |\n\nFargo is the first hub to assess for winter resilience investment. It has the most winter warning days among the hubs shown, and station records show frequent extreme cold and snow. Minneapolis also stands out for heavy snow and observed ice. The uncertainty ranges overlap, so the exact ordering is less certain than the point estimates suggest.\n\nDisaster-level days estimate winter warning days associated with a federally declared major disaster. Warning days include all winter warnings, so they are the better guide to how often operations may be disrupted.",
+     "answer": "**Fargo, ND, is the Midwest\u2019s most exposed hub for disaster-level winter disruption**, followed by Minneapolis and Milwaukee. Fargo averages **9.85 winter warning days per year**, even though a disaster-level winter day is expected only about once every **2.1 years**.\n\n| Midwest rank | Hub | Disaster-level winter days/yr (90% range) | About one disaster-level winter day every | Winter warning days/yr |\n|---:|---|---:|---:|---:|\n| 1 | Fargo, ND | 0.48 (0.36 to 0.63) | 2.1 years | 9.85 |\n| 2 | Minneapolis, MN | 0.33 (0.24 to 0.44) | 3.0 years | 6.8 |\n| 3 | Milwaukee, WI | 0.27 (0.20 to 0.37) | 3.7 years | 5.65 |\n| 4 | Des Moines, IA | 0.22 (0.16 to 0.31) | 4.5 years | 4.55 |\n| 5 | Cincinnati, OH | 0.19 (0.14 to 0.27) | 5.2 years | 4.0 |\n\nFargo also stands out for extreme cold, averaging **54.86 extreme-cold days per year**. The ranking uses expected warning days associated with federally declared major disasters, not all winter warning days. The uncertainty ranges overlap, so differences between neighboring hubs are not definitive.",
      "tools": [
       "rank_hubs",
       "compare_hubs"
      ],
-     "latency_ms": 17851,
-     "cost_usd": 0.01816,
+     "latency_ms": 15487,
+     "cost_usd": 0.01837,
      "tokens": {
-      "input_tokens": 16453,
-      "cached_tokens": 12025,
-      "output_tokens": 810
+      "input_tokens": 17098,
+      "cached_tokens": 12346,
+      "output_tokens": 763
      }
     },
     {
@@ -1174,22 +1176,79 @@
       ]
      ],
      "passed": true,
-     "answer": "**Chicago ranks 13th out of 13 Midwest hubs for disaster-level winter disruption.** It averages **0.05 disaster-level winter days per year**, or about one such day every **19.7 years**, and **1.05 winter warning days per year**.\n\nThat does not mean snow and ice are rare. Chicago\u2019s station records average **17.73 snow days** and **8.43 days with observed ice** per year. The ranking measures winter warnings associated with a federally declared major disaster, not all snowy or icy days or actual hub downtime.\n\nChicago\u2019s 90% range is **0.03 to 0.09 disaster-level winter days per year**. Its **Elevated** tier reflects overall exposure across all hazards, not winter alone.",
+     "answer": "**Chicago ranks last (13th of 13 Midwest hubs) for disaster-level winter days.** It averages **0.05 disaster-level winter days per year** (90% range: 0.03 to 0.09), or about **one disaster-level winter day every 19.7 years**. It averages **1.05 winter warning days per year**.\n\nThat low rank doesn\u2019t mean snow and ice are rare. Chicago averages **17.73 days with measurable snowfall** and **8.43 days with observed ice** per year. The ranking measures winter warning days associated with federally declared major disasters, not how often snow or ice occurs.",
      "tools": [
       "rank_hubs",
       "compare_hubs"
      ],
-     "latency_ms": 9991,
-     "cost_usd": 0.01826,
+     "latency_ms": 9769,
+     "cost_usd": 0.01803,
      "tokens": {
-      "input_tokens": 18450,
-      "cached_tokens": 12179,
-      "output_tokens": 450
+      "input_tokens": 18787,
+      "cached_tokens": 12346,
+      "output_tokens": 391
      }
     }
    ],
-   "cost_usd": 0.036419999999999994,
-   "latency_ms": 27842,
+   "cost_usd": 0.0364,
+   "latency_ms": 25256,
+   "repeat": 1
+  },
+  {
+   "id": "live_warnings_now",
+   "category": "live",
+   "passed": true,
+   "turns": [
+    {
+     "message": "Are any of our hubs under a weather warning right now?",
+     "checks": [
+      [
+       "answered",
+       true,
+       "answered"
+      ],
+      [
+       "validation_passed",
+       true,
+       ""
+      ],
+      [
+       "no_dashes",
+       true,
+       ""
+      ],
+      [
+       "tool:get_live_warnings",
+       true,
+       "called [('get_live_warnings', {'region': None})]"
+      ],
+      [
+       "mention:live|right now|currently|last check",
+       true,
+       ""
+      ],
+      [
+       "question_type",
+       true,
+       "live_warnings"
+      ]
+     ],
+     "passed": true,
+     "answer": "Yes. **Oakland, CA (SF Bay Area)** was the only hub under a weather warning: a **Coastal Flood Warning** in effect until **Nov 26, 16:00 local time**.\n\nThe live National Weather Service feed was last checked at **2026-11-23 20:11 UTC**. No other hub had an active warning at that check. Live warnings do not change historical risk scores.",
+     "tools": [
+      "get_live_warnings"
+     ],
+     "latency_ms": 7130,
+     "cost_usd": 0.00995,
+     "tokens": {
+      "input_tokens": 9124,
+      "cached_tokens": 5744,
+      "output_tokens": 262
+     }
+    }
+   ],
+   "cost_usd": 0.00995,
+   "latency_ms": 7130,
    "repeat": 1
   },
   {
@@ -1232,19 +1291,19 @@
       ]
      ],
      "passed": true,
-     "answer": "I don\u2019t have live forecasts, so I can\u2019t say whether it will rain in Denver tomorrow. For the latest rain chances and timing, check the National Weather Service\u2019s hourly forecast for Denver. I can look up how often it has rained in Denver in past Novembers.",
+     "answer": "I don\u2019t have forecast data, so I can\u2019t tell whether it will rain in Denver tomorrow. Check the [National Weather Service forecast for Denver](https://www.weather.gov/bou/) for the chance and timing of rain. I can also check active weather warnings or look up Denver\u2019s historical rainfall.",
      "tools": [],
-     "latency_ms": 4909,
-     "cost_usd": 0.0049,
+     "latency_ms": 6231,
+     "cost_usd": 0.00571,
      "tokens": {
-      "input_tokens": 4244,
-      "cached_tokens": 2768,
-      "output_tokens": 167
+      "input_tokens": 4459,
+      "cached_tokens": 2864,
+      "output_tokens": 223
      }
     }
    ],
-   "cost_usd": 0.0049,
-   "latency_ms": 4909,
+   "cost_usd": 0.00571,
+   "latency_ms": 6231,
    "repeat": 1
   },
   {
@@ -1277,21 +1336,21 @@
       ]
      ],
      "passed": true,
-     "answer": "Tampa isn\u2019t a tracked hub, and I don\u2019t have the local warning and disaster data needed to estimate its **disaster-level days per year**.\n\nThe tool recommends Orlando as a stand-in, **125 km** away with a **similarity score of 82.0**. Orlando has lower coastal and inland flood exposure in the tool\u2019s hazard profiles, so its score should not be treated as Tampa\u2019s. I\u2019ve left Orlando\u2019s numbers out as requested. If you change your mind, would you like me to analyze Orlando as a separate benchmark?",
+     "answer": "We don\u2019t have a disaster-level days-per-year estimate for Tampa, FL. Tampa is outside the hub dataset, and the county-level hazard profile alone doesn\u2019t tell us how many local National Weather Service warning days were associated with federally declared major disasters.\n\nOrlando is the recommended stand-in, at 125 km from Tampa with a hazard-profile similarity score of 82.0. It has lower coastal and inland flood exposure in the comparison, so I wouldn\u2019t use its score as Tampa\u2019s. I haven\u2019t analyzed Orlando given your preference. Would you like me to analyze it separately for context?",
      "tools": [
       "find_nearest_hubs"
      ],
-     "latency_ms": 8205,
-     "cost_usd": 0.00987,
+     "latency_ms": 8489,
+     "cost_usd": 0.01133,
      "tokens": {
-      "input_tokens": 9114,
-      "cached_tokens": 6162,
-      "output_tokens": 335
+      "input_tokens": 9544,
+      "cached_tokens": 5750,
+      "output_tokens": 317
      }
     }
    ],
-   "cost_usd": 0.00987,
-   "latency_ms": 8205,
+   "cost_usd": 0.01133,
+   "latency_ms": 8489,
    "repeat": 1
   }
  ]

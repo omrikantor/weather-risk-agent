@@ -148,6 +148,11 @@ class SeasonalOutlookInput(_Strict):
         return v
 
 
+class LiveWarningsInput(_Strict):
+    """Arguments for get_live_warnings."""
+    region: Region | None = Field(description="US Census region filter, or null for all hubs.")
+
+
 class FindNearestHubsInput(_Strict):
     """Arguments for find_nearest_hubs: free text, resolved against Census places in locate.py."""
     location: str = Field(description="A US place that is not one of our hubs, e.g. 'Tampa, FL' or 'Spokane'.")

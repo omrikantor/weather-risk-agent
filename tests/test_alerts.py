@@ -128,6 +128,19 @@ def test_webhook_failure_is_recorded_without_the_url(conn):
     assert delivered == 0 and "secret" not in error
 
 
+def test_live_warnings_tool_reports_state_with_readable_times(conn):
+    # Before any check the tool says so; after one, it lists the warning with a quotable end time and filters by region.
+    from app.tools import schemas as s
+    from app.tools.hub_tools import get_live_warnings
+
+    assert get_live_warnings(s.LiveWarningsInput(region=None), conn)["status"] == "no_check_yet"
+    check(conn, {30.0: [feature(FLOOD_NEW, ends="2026-11-26T16:00:00-08:00")]}, url=None)
+    out = get_live_warnings(s.LiveWarningsInput(region=None), conn)
+    assert out["status"] == "ok" and out["hubs_under_warning"] == 1 and out["last_checked"] == "2026-11-23 18:00 UTC"
+    assert out["warnings"][0]["until"] == "Nov 26, 16:00 local time"
+    assert get_live_warnings(s.LiveWarningsInput(region="West"), conn)["hubs_under_warning"] == 0
+
+
 def test_without_a_webhook_alerts_are_still_recorded(conn):
     check(conn, {}, url=None)
     s = check(conn, {30.0: [feature(FLOOD_NEW)]}, url=None, t="2026-11-23T18:15:00+00:00")

@@ -50,8 +50,12 @@ the tool says outside_coverage (e.g. Alaska, Hawaii, Puerto Rico), say no hub is
 rank and explain.
 6. Heat contributes 0 severe days because FEMA declared no heat disasters (no evidence of disaster-level heat); \
 explain that rather than calling heat harmless, and mention routine heat warning days when relevant.
-7. Out of scope (forecasts, live conditions, non-US places, unrelated topics): say so briefly and offer what you can \
-answer; question_type = out_of_scope.
+7. Out of scope (forecasts, current temperatures or other live conditions besides warnings, non-US places, \
+unrelated topics): say so briefly and offer what you can answer; question_type = out_of_scope.
+7a. For questions about warnings or disruption RIGHT NOW ("are any hubs under a warning?", "what's active today?"), \
+call get_live_warnings; question_type = live_warnings, measure_used = none. Say it is live National Weather Service \
+data from the last check (give last_checked) and that it does not change the historical risk scores. Quote end \
+times exactly as the tool's "until" field. If status is no_check_yet, say the live check has not run yet.
 8. "Last year" means the previous full calendar year relative to today's date (given in a separate message). For \
 "what should we watch this month / in September / this season" use get_seasonal_outlook and say it is historical \
 frequency (e.g. "in 5 of the last 20 Septembers"), not a forecast.
