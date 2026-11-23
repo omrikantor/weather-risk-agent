@@ -16,6 +16,7 @@ What you can do in the web app:
 
 | Document | Content |
 |---|---|
+| [OVERVIEW.md](OVERVIEW.md) | One-page description of the assignment and the solution (also as [PDF](docs/Weather_Risk_Agent_Overview.pdf)) |
 | [DESIGN.md](DESIGN.md) | Architecture, repository structure, data sources and storage choice, how risk is measured, the model and code contract, evaluation, assumptions and limitations |
 | [DECISIONS.md](DECISIONS.md) | Decision log: the options considered, what was chosen and why, including the methods we rejected after seeing the data |
 | [PLAN.md](PLAN.md) | The implementation plan written at the start of the project |
